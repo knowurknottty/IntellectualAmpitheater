@@ -1,0 +1,28 @@
+[[providers]]
+provider_id = "local-llama"
+display_name = "Local llama.cpp"
+adapter = "openai_compat"
+base_url = "http://127.0.0.1:8080/v1"
+provider_family = "local"
+max_concurrent_requests = 1
+
+[providers.capabilities]
+streaming = "supported"
+system_messages = "supported"
+multimodal_input = "unknown"
+image_output = "unsupported"
+tool_calling = "unknown"
+parallel_tool_calls = "unknown"
+structured_output = "unknown"
+reasoning_control = "unknown"
+temperature = "supported"
+top_p = "supported"
+seed = "unknown"
+max_output_tokens = "supported"
+citations = "unsupported"
+web_search = "unsupported"
+file_upload = "unsupported"
+native_memory = "unsupported"
+context_window = "provider_default"
+usage_reporting = "unknown"
+cancellation = "supported"
