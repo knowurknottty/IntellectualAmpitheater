@@ -1,87 +1,90 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { IntelAmpClient } from "../api/client";
+import type { ProviderSummary, RunEvent, SeatRecord } from "../api/types";
+import { Composer } from "./Composer";
+import { Inspector } from "./Inspector";
+import { SeatGrid, type SeatStatus, type SeatView } from "./SeatGrid";
 
-import { SeatGrid, type SeatView } from "./SeatGrid";
-
+type DispatchIntent = { prompt: string; seatIds: string[]; requestedCapabilities: { required: string[]; optional: string[] } };
 type AppShellProps = {
-  seats: SeatView[];
+  seats?: SeatView[];
+  providers?: ProviderSummary[];
+  client?: IntelAmpClient;
+  onDispatch?: (intent: DispatchIntent) => void | Promise<void>;
+  onCancel?: (runId: string) => void | Promise<void>;
 };
 
-function focusRegion(id: string) {
-  document.getElementById(id)?.focus();
+function focusRegion(id: string) { document.getElementById(id)?.focus(); }
+function statusFromEvent(event: RunEvent): SeatStatus | undefined {
+  if (event.event_type === "queued") return "queued";
+  if (event.event_type === "running") return "running";
+  if (event.event_type !== "terminal") return undefined;
+  const terminal = event.data.terminal_state;
+  if (terminal === "completed" || terminal === "cancelled_by_user" || terminal === "stream_interrupted" || terminal === "indeterminate") return terminal;
+  return "failed";
+}
+function toSeatView(seat: SeatRecord, providers: ProviderSummary[]): SeatView {
+  const provider = providers.find((candidate) => candidate.provider_id === seat.provider_id);
+  return { seatId: seat.seat_id, displayName: seat.display_name, providerId: seat.provider_id, providerLabel: provider?.display_name ?? seat.provider_id, modelLabel: seat.model_id, status: "idle" };
 }
 
-export function AppShell({ seats }: AppShellProps) {
-  const [focusedSeatId, setFocusedSeatId] = useState(seats[0]?.seatId ?? "");
+export function AppShell({ seats: controlledSeats, providers: controlledProviders, client, onDispatch, onCancel }: AppShellProps) {
+  const gateway = useMemo(() => client ?? new IntelAmpClient(), [client]);
+  const [liveSeats, setLiveSeats] = useState<SeatView[]>(controlledSeats ?? []);
+  const [liveProviders, setLiveProviders] = useState<ProviderSummary[]>(controlledProviders ?? []);
+  const [focusedSeatId, setFocusedSeatId] = useState((controlledSeats ?? [])[0]?.seatId ?? "");
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const runToSeat = useRef(new Map<string, string>());
+
+  useEffect(() => { if (controlledSeats) setLiveSeats(controlledSeats); }, [controlledSeats]);
+  useEffect(() => { if (controlledProviders) setLiveProviders(controlledProviders); }, [controlledProviders]);
+  useEffect(() => {
+    if (controlledSeats || controlledProviders) return;
+    let active = true;
+    void Promise.all([gateway.listProviders(), gateway.listSeats()]).then(([providers, seats]) => {
+      if (!active) return;
+      setLiveProviders(providers); setLiveSeats(seats.map((seat) => toSeatView(seat, providers))); setFocusedSeatId((current) => current || seats[0]?.seat_id || "");
+    }).catch((error: unknown) => { if (active) setGatewayError(error instanceof Error ? error.message : "Gateway unavailable"); });
+    return () => { active = false; };
+  }, [controlledProviders, controlledSeats, gateway]);
 
   useEffect(() => {
-    if (!seats.some((seat) => seat.seatId === focusedSeatId)) {
-      setFocusedSeatId(seats[0]?.seatId ?? "");
-    }
-  }, [focusedSeatId, seats]);
+    if (!liveSeats.some((seat) => seat.seatId === focusedSeatId)) setFocusedSeatId(liveSeats[0]?.seatId ?? "");
+  }, [focusedSeatId, liveSeats]);
 
-  const focusedSeat = seats.find((seat) => seat.seatId === focusedSeatId) ?? seats[0];
+  const applyEvent = (runId: string, event: RunEvent) => {
+    const seatId = runToSeat.current.get(runId); if (!seatId) return;
+    setLiveSeats((current) => current.map((seat) => {
+      if (seat.seatId !== seatId) return seat;
+      const status = statusFromEvent(event) ?? seat.status;
+      const text = event.event_type === "chunk" && typeof event.data.text === "string" ? (seat.text ?? "") + event.data.text : seat.text;
+      const failureClass = event.event_type === "terminal" && typeof event.data.failure_class === "string" ? event.data.failure_class : seat.failureClass;
+      return { ...seat, status, text, failureClass };
+    }));
+  };
 
-  return (
-    <div className="intelamp-shell">
-      <nav className="workspace-nav" aria-label="Workspace navigation">
-        <div className="brand-mark" aria-label="IntelAMP">IA</div>
-        <button type="button" onClick={() => focusRegion("seat-workspace")}>Threads</button>
-        <button type="button" onClick={() => focusRegion("inspector")}>Providers</button>
-        <button type="button" onClick={() => focusRegion("composer")}>Compose</button>
-      </nav>
+  const dispatch = async (intent: DispatchIntent) => {
+    if (onDispatch) return await onDispatch(intent);
+    setGatewayError(null);
+    const accepted = await gateway.dispatch({ thread_id: "thread_local_default", prompt: intent.prompt, seat_ids: intent.seatIds, requested_capabilities: intent.requestedCapabilities });
+    intent.seatIds.forEach((seatId, index) => { const runId = accepted.run_ids[index]; if (runId) runToSeat.current.set(runId, seatId); });
+    setLiveSeats((current) => current.map((seat) => intent.seatIds.includes(seat.seatId) ? { ...seat, status: "queued", runId: accepted.run_ids[intent.seatIds.indexOf(seat.seatId)], text: "", failureClass: null, receipt: undefined } : seat));
+    accepted.run_ids.forEach((runId) => {
+      void gateway.subscribeRunEvents(runId, { onEvent: (event) => applyEvent(runId, event) }).then(async () => {
+        const receipt = await gateway.getReceipt(runId); const seatId = runToSeat.current.get(runId);
+        if (seatId) setLiveSeats((current) => current.map((seat) => seat.seatId === seatId ? { ...seat, receipt } : seat));
+      }).catch((error: unknown) => setGatewayError(error instanceof Error ? error.message : "Run stream failed"));
+    });
+  };
+  const cancel = async (runId: string) => { if (onCancel) return await onCancel(runId); await gateway.cancelRun(runId); };
 
-      <header className="run-status" aria-label="Run status">
-        <div>
-          <span className="run-status__brand">INTELAMP</span>
-          <span className="run-status__divider" aria-hidden="true">/</span>
-          <span>{seats.length} {seats.length === 1 ? "seat" : "seats"}</span>
-        </div>
-        <strong>No active run</strong>
-      </header>
-
-      <main id="seat-workspace" className="seat-workspace" aria-label="Seat workspace" tabIndex={-1}>
-        {seats.length > 0 && (
-          <label className="focused-seat-control">
-            <span>Focused seat</span>
-            <select
-              aria-label="Focused seat"
-              value={focusedSeat?.seatId ?? ""}
-              onChange={(event) => setFocusedSeatId(event.target.value)}
-            >
-              {seats.map((seat) => (
-                <option value={seat.seatId} key={seat.seatId}>{seat.displayName}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <SeatGrid seats={seats} focusedSeatId={focusedSeat?.seatId} />
-      </main>
-
-      <form id="composer" className="composer" aria-label="Prompt composer" tabIndex={-1} onSubmit={(event) => event.preventDefault()}>
-        <label htmlFor="prompt">Prompt</label>
-        <textarea
-          id="prompt"
-          name="prompt"
-          rows={2}
-          disabled
-          placeholder="Gateway client not connected in this shell build"
-        />
-        <span className="composer__state">Dispatch is unavailable until the typed gateway client is attached.</span>
-      </form>
-
-      <aside id="inspector" className="inspector" aria-label="Inspector" tabIndex={-1}>
-        <p className="eyebrow">INSPECTOR</p>
-        <h2>{focusedSeat?.displayName ?? "No seat selected"}</h2>
-        {focusedSeat ? (
-          <dl>
-            <div><dt>Provider</dt><dd>{focusedSeat.providerLabel}</dd></div>
-            <div><dt>Model</dt><dd>{focusedSeat.modelLabel}</dd></div>
-            <div><dt>State</dt><dd>{focusedSeat.status}</dd></div>
-          </dl>
-        ) : (
-          <p>Configure a seat to inspect provider and model identity.</p>
-        )}
-      </aside>
-    </div>
-  );
+  const focusedSeat = liveSeats.find((seat) => seat.seatId === focusedSeatId) ?? liveSeats[0];
+  const activeCount = liveSeats.filter((seat) => seat.status === "queued" || seat.status === "running").length;
+  return <div className="intelamp-shell">
+    <nav className="workspace-nav" aria-label="Workspace navigation"><div className="brand-mark" aria-label="IntelAMP">IA</div><button type="button" onClick={() => focusRegion("seat-workspace")}>Threads</button><button type="button" onClick={() => focusRegion("inspector")}>Providers</button><button type="button" onClick={() => focusRegion("composer")}>Compose</button></nav>
+    <header className="run-status" aria-label="Run status"><div><span className="run-status__brand">INTELAMP</span><span className="run-status__divider" aria-hidden="true">/</span><span>{liveSeats.length} {liveSeats.length === 1 ? "seat" : "seats"}</span></div><strong>{activeCount > 0 ? `${activeCount} running` : "No active run"}</strong></header>
+    <main id="seat-workspace" className="seat-workspace" aria-label="Seat workspace" tabIndex={-1}>{gatewayError && <p className="gateway-error" role="alert">{gatewayError}</p>}{liveSeats.length > 0 && <label className="focused-seat-control"><span>Focused seat</span><select aria-label="Focused seat" value={focusedSeat?.seatId ?? ""} onChange={(event) => setFocusedSeatId(event.target.value)}>{liveSeats.map((seat) => <option value={seat.seatId} key={seat.seatId}>{seat.displayName}</option>)}</select></label>}<SeatGrid seats={liveSeats} focusedSeatId={focusedSeat?.seatId} /></main>
+    <div id="composer" tabIndex={-1}><Composer seats={liveSeats} providers={liveProviders} onDispatch={dispatch} onCancel={cancel} /></div>
+    <div id="inspector" tabIndex={-1}><Inspector seat={focusedSeat} /></div>
+  </div>;
 }
