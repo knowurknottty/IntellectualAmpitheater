@@ -1,0 +1,172 @@
+{
+  "suite": "wave-03 F1-F15 (v3)",
+  "graded_passed": 14,
+  "graded_total": 14,
+  "informational": [
+    "F13_iteration_is_a_noop"
+  ],
+  "results": [
+    {
+      "test": "F1_reproducibility",
+      "runs": 40,
+      "distinct_outcomes": 1,
+      "pass": true
+    },
+    {
+      "test": "F2_no_annihilation",
+      "posterior": {
+        "A": 0.475,
+        "B": 0.475,
+        "__open__": 0.05
+      },
+      "dissent_reported": true,
+      "pass": true
+    },
+    {
+      "test": "F3_cluster_discount",
+      "one_source": 0.772725,
+      "two_identical": 0.772725,
+      "sharpen_delta": 0.0,
+      "pass": true
+    },
+    {
+      "test": "F4_byzantine_bound",
+      "posterior": {
+        "A": 0.95,
+        "B": 0.0,
+        "__open__": 0.05
+      },
+      "argmax": "A",
+      "quarantined": [],
+      "pass": true
+    },
+    {
+      "test": "F5_calibration_loop",
+      "weight_uncalibrated": 0.5,
+      "weight_after_20": 0.757576,
+      "calibrated": true,
+      "pass": true
+    },
+    {
+      "test": "F6_dissent",
+      "argmax": "A",
+      "minority_mass_B": 0.393503,
+      "dissent": [
+        {
+          "cluster_key": "0e0454eb232a",
+          "sources": [
+            "min"
+          ],
+          "argmax": "B",
+          "support": 0.5565,
+          "rejected": false
+        }
+      ],
+      "pass": true
+    },
+    {
+      "test": "F7_order_invariance",
+      "pass": true,
+      "posterior": {
+        "A": 0.585116,
+        "B": 0.364884,
+        "__open__": 0.05
+      }
+    },
+    {
+      "test": "F8_open_world",
+      "posterior": {
+        "A": 0.235076,
+        "B": 0.235076,
+        "D": 0.479847,
+        "__open__": 0.05
+      },
+      "D_mass": 0.479847,
+      "pass": true
+    },
+    {
+      "test": "F9_correlated_majority_vs_independent_minority",
+      "posterior": {
+        "A": 0.470681,
+        "B": 0.479319,
+        "__open__": 0.05
+      },
+      "independence_status": "3_clusters",
+      "clusters": {
+        "769352cbbab8": [
+          "c0",
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "0b2c21e6bc3e": [
+          "i1"
+        ],
+        "57267ab4b5a9": [
+          "i2"
+        ]
+      },
+      "argmax": "B",
+      "pass": true
+    },
+    {
+      "test": "F10_many_identical_sources_bounded",
+      "conf_1": 0.7125,
+      "conf_10": 0.7125,
+      "pass": true
+    },
+    {
+      "test": "F11_open_world_mass",
+      "posterior": {
+        "A": 0.235076,
+        "B": 0.235076,
+        "C_hypothesis_nobody_proposed": 0.479847,
+        "__open__": 0.05
+      },
+      "novel_mass": 0.479847,
+      "pass": true,
+      "note": "If novel_mass ~ epsilon, the open-world claim is technically true but practically false."
+    },
+    {
+      "test": "F12_quarantine_order_invariance",
+      "pass": true,
+      "quarantined": []
+    },
+    {
+      "test": "F13_iteration_is_a_noop",
+      "passes": 2,
+      "stopping_reason": "converged",
+      "matches_single_shot": true,
+      "note": "If Fusion is stateless, 'rounds' are decorative. Honest finding, not a defect."
+    },
+    {
+      "test": "F14_honest_dissent_not_excluded",
+      "posterior": {
+        "A": 0.938415,
+        "B": 0.011585,
+        "__open__": 0.05
+      },
+      "rejected": [],
+      "outliers": [
+        "diss"
+      ],
+      "dissent_reported": true,
+      "dissent_kept_in_fusion": true,
+      "pass": true
+    },
+    {
+      "test": "F15_malformed_rejected",
+      "rejected": [
+        "bad_sum",
+        "bad_neg"
+      ],
+      "posterior": {
+        "A": 0.522985,
+        "B": 0.427015,
+        "__open__": 0.05
+      },
+      "pass": true
+    }
+  ]
+}

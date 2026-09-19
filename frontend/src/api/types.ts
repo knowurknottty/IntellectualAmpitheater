@@ -83,3 +83,12 @@ export type RunReceipt = {
 };
 
 export type CancellationAcknowledgement = { run_id: string; cancel_requested: boolean };
+
+export type ThreadRecord = {
+  thread_id: string;
+  title: string | null;
+  created_at: string;
+  run_count: number;
+  last_run_at: string | null;
+  schema_version: number;
+};

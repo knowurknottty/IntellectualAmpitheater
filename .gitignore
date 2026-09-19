@@ -12,3 +12,5 @@ frontend/dist/
 evidence/runtime/
 
 /intelamp.sqlite3
+/intelamp.sqlite3-shm
+/intelamp.sqlite3-wal

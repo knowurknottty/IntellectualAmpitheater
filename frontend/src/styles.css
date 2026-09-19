@@ -230,6 +230,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex="-
 .composer-action--stop { background: var(--alert); border-color: var(--alert); color: #0B0A0C; }
 .composer-action:disabled { background: var(--surface-raised); border-color: var(--line); color: var(--ink-muted); cursor: not-allowed; }
 .gateway-error { margin: 0 0 12px; border-left: 3px solid var(--alert); padding: 8px 10px; color: var(--ink); background: var(--surface-quiet); }
+.thread-control { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.thread-control span { font: 600 .72rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.thread-control select { min-height: 44px; max-width: 320px; border: 1px solid var(--line); background: var(--surface-quiet); color: var(--ink); padding: 0 10px; }
+.thread-control button { min-height: 44px; border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink); cursor: pointer; padding: 0 16px; font-weight: 700; }
 .seat-failure { color: var(--alert); font: 700 .76rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .receipt-facts { margin-top: 24px; }
 .receipt-facts h3 { font: 600 1rem/1.2 Georgia, serif; }

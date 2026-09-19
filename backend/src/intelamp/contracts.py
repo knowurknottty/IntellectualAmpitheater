@@ -153,3 +153,16 @@ class RunReceipt(StrictModel):
     output_digest: str | None = None
     failure_class: FailureClass | None = None
     retry_of_run_id: str | None = None
+
+
+class ThreadCreate(StrictModel):
+    title: str | None = None
+
+
+class ThreadRecord(StrictModel):
+    thread_id: str
+    title: str | None = None
+    created_at: datetime
+    run_count: int = 0
+    last_run_at: datetime | None = None
+    schema_version: int = 1

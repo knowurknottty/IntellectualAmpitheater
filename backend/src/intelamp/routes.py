@@ -8,10 +8,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Header
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from .contracts import DispatchRequest, FailureClass, RunReceipt, SeatCreate, TerminalState
+from .contracts import DispatchRequest, FailureClass, RunReceipt, SeatCreate, TerminalState, ThreadCreate
 from .dispatch import DispatchEngine
 from .registry import ProviderRegistry
-from .repositories import EventRepository, RunRepository, SeatRepository
+from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
 
 
 @dataclass(slots=True)
@@ -19,6 +19,7 @@ class RouteServices:
     seats: SeatRepository
     runs: RunRepository
     events: EventRepository
+    threads: ThreadRepository
     registry: ProviderRegistry
     dispatch: DispatchEngine
 
@@ -107,6 +108,21 @@ def create_router(services: RouteServices) -> APIRouter:
             )
         return {"providers": providers}
 
+    @router.get("/threads")
+    async def list_threads() -> dict[str, Any]:
+        return {"threads": [thread.model_dump(mode="json") for thread in await services.threads.list()]}
+
+    @router.post("/threads", status_code=201)
+    async def create_thread(payload: ThreadCreate):
+        return (await services.threads.create(payload)).model_dump(mode="json")
+
+    @router.get("/threads/{thread_id}")
+    async def get_thread(thread_id: str):
+        thread = await services.threads.get(thread_id)
+        if thread is None:
+            return _error(404, "thread_not_found", f"thread not found: {thread_id}")
+        return thread.model_dump(mode="json")
+
     @router.post("/dispatch", status_code=202)
     async def dispatch(request: DispatchRequest):
         try:
@@ -144,7 +160,34 @@ def create_router(services: RouteServices) -> APIRouter:
                         break
                     continue
                 current = await services.runs.get(run_id)
-                if current is None or current.terminal_state is not None:
+                if current is None:
+                    break
+                if current.terminal_state is not None:
+                    # REPAIR (SSE silent-break race, confirmed by unit falsifier):
+                    # the run is terminal but a terminal event was never appended
+                    # (finalize commits state before the event append; a subscriber
+                    # that polls inside that window used to get a clean empty
+                    # stream and never learn the outcome — the UI seat stayed
+                    # "running" forever). Reconstruct a terminal frame from the
+                    # durable receipt state. The synthesized frame is marked
+                    # `reconstructed: true`; it never invents a terminal state —
+                    # it reports the state the run actually has.
+                    payload = json.dumps(
+                        {
+                            "run_id": run_id,
+                            "sequence": sequence + 1,
+                            "event_type": "terminal",
+                            "created_at": current.completed_at.isoformat() if current.completed_at else None,
+                            "data": {
+                                "terminal_state": current.terminal_state,
+                                "failure_class": current.failure_class,
+                                "output_digest": current.output_digest,
+                                "reconstructed": True,
+                            },
+                        },
+                        separators=(",", ":"),
+                    )
+                    yield f"id: {sequence + 1}\nevent: terminal\ndata: {payload}\n\n"
                     break
                 await asyncio.sleep(0.02)
 

@@ -1,0 +1,13 @@
+
+> intelamp-frontend@0.1.0 build
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 35 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.44 kB │ gzip:  0.28 kB
+dist/assets/index-o0FgtVvd.css   12.28 kB │ gzip:  3.51 kB
+dist/assets/index-FF0GkM28.js   236.24 kB │ gzip: 73.76 kB
+✓ built in 354ms

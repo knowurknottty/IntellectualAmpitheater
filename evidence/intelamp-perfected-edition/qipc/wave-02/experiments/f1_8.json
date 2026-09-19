@@ -1,0 +1,87 @@
+{
+  "suite": "F1-F8",
+  "passed": 8,
+  "total": 8,
+  "results": [
+    {
+      "test": "F1_reproducibility",
+      "runs": 40,
+      "distinct_outcomes": 1,
+      "pass": true
+    },
+    {
+      "test": "F2_no_annihilation",
+      "posterior": {
+        "A": 0.475,
+        "B": 0.475,
+        "__open__": 0.05
+      },
+      "dissent_reported": true,
+      "pass": true
+    },
+    {
+      "test": "F3_cluster_discount",
+      "one_source": 0.747712,
+      "two_identical": 0.747712,
+      "sharpen_delta": 0.0,
+      "pass": true
+    },
+    {
+      "test": "F4_byzantine_bound",
+      "posterior": {
+        "A": 0.904503,
+        "B": 0.0,
+        "__open__": 0.095497
+      },
+      "argmax": "A",
+      "quarantined": [
+        "poison"
+      ],
+      "pass": true
+    },
+    {
+      "test": "F5_calibration_loop",
+      "weight_uncalibrated": 0.5,
+      "weight_after_20": 0.757576,
+      "calibrated": true,
+      "pass": true
+    },
+    {
+      "test": "F6_dissent",
+      "argmax": "A",
+      "minority_mass_B": 0.303318,
+      "dissent": [
+        {
+          "cluster_key": "0e0454eb232a",
+          "sources": [
+            "min"
+          ],
+          "argmax": "B",
+          "support": 0.5309,
+          "quarantined": false
+        }
+      ],
+      "pass": true
+    },
+    {
+      "test": "F7_order_invariance",
+      "pass": true,
+      "posterior": {
+        "A": 0.496056,
+        "B": 0.309345,
+        "__open__": 0.194599
+      }
+    },
+    {
+      "test": "F8_open_world",
+      "posterior": {
+        "A": 0.229172,
+        "B": 0.229172,
+        "D": 0.467795,
+        "__open__": 0.073862
+      },
+      "D_mass": 0.467795,
+      "pass": true
+    }
+  ]
+}

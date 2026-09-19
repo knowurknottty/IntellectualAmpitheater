@@ -12,7 +12,7 @@ from .database import Base, create_engine_and_session
 from .dispatch import DispatchEngine
 from .providers.base import ProviderAdapter
 from .routes import RouteServices, create_router
-from .repositories import EventRepository, RunRepository, SeatRepository
+from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
 
 
 def create_app(
@@ -29,8 +29,9 @@ def create_app(
     seats = SeatRepository(sessions)
     runs = RunRepository(sessions)
     events = EventRepository(sessions)
+    threads = ThreadRepository(sessions)
     dispatch = DispatchEngine(seats=seats, runs=runs, events=events, registry=registry)
-    services = RouteServices(seats=seats, runs=runs, events=events, registry=registry, dispatch=dispatch)
+    services = RouteServices(seats=seats, runs=runs, events=events, threads=threads, registry=registry, dispatch=dispatch)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):

@@ -1,0 +1,32 @@
+{
+  "canonical_path": "/Users/knowurknot/biocapt-ecosystem/capt/src/qipc.py",
+  "canonical_git_head": "e810bca297c3e2801ee129ae8f34e10f2a95ce98",
+  "python": "3.12.13",
+  "run_interpreter": "uv run --python 3.12 --with numpy python",
+  "note": "Executed by the aggregator (tool-capable) on 2026-09-17. Python 3.9/3.14 fail to even import the module (dataclass slots).",
+  "receipts": [
+    {"experiment": "E1_reproducibility", "runs": 40, "distinct_outcomes": 2,
+     "sample": [[false, 15, null, "A"], [false, 15, null, "B"]],
+     "verdict": "NON_REPRODUCIBLE",
+     "defect": "Random gossip target selection + weighted-random measurement make identical inputs produce different argmax outcomes across runs. No seed, no replay."},
+    {"experiment": "E2_destructive_interference", "final_probs_n0": {"A": 0.5, "B": 0.5},
+     "consensus_confidence": 0.0, "reported_agreement": null, "argmax_choice": "A",
+     "consensus_reached": false,
+     "verdict": "CONFLICT_ANNIHILATION_ARBITRARY_ARGMAX",
+     "defect": "Two fully-confident, mutually-exclusive beliefs superpose to a uniform posterior; the reported single answer is an arbitrary argmax over a tie. Genuine disagreement is annihilated rather than preserved as dissent."},
+    {"experiment": "E3_false_consensus_metric", "confidence_all_tied": 0.0, "agreement_metric": 1.0,
+     "verdict": "AGREEMENT_METRIC_DECOUPLED_FROM_CONFIDENCE",
+     "defect": "_check_agreement() returns 1.0 (100% agreement) on a maximally-uncertain 50/50 posterior, because it counts the argmax label, not the mass. Callers reading 'agreement' get a false-consensus signal."},
+    {"experiment": "E4_byzantine_poison", "final_argmax_n0": "A", "final_amplitude_ratio": 0.122,
+     "consensus_reached": false,
+     "verdict": "AMPLITUDE_MAGNITUDE_NOT_BOUNDED_BY_COUNT",
+     "defect": "Influence is carried by raw amplitude magnitude, not by an independently-keyed weight or count. A single malicious source can scale its own contribution arbitrarily; conversely a large honest outlier dominates. No reliability, no cap, no quarantine."},
+    {"experiment": "E5_message_scaling", "measurements": {"10": {"messages": 30, "rounds": 1}, "25": {"messages": 100, "rounds": 1}, "50": {"messages": 250, "rounds": 1}, "100": {"messages": 600, "rounds": 1}},
+     "note": "Fully-connected graph; O(n log n) targets per round holds, but the benefit is only claimed against a strawman O(n^2) broadcast. Runs terminate in 1 round only when the population is already unanimous."},
+    {"experiment": "E6_algebra_checks", "commutative": true, "idempotent": true,
+     "a": {"A": 1.0, "B": 0.0}, "a_superpose_a": {"A": 1.0, "B": 0.0},
+     "destructive_example_ab": {"A": 0.5, "B": 0.5}, "assoc_example_abc": {"A": 0.5, "B": 0.5},
+     "verdict": "idempotent_ok",
+     "note": "superpose() is commutative and idempotent after renormalization, but is NOT a probability merge: it is unsigned amplitude addition that destroys information whenever sources disagree in sign."}
+  ]
+}

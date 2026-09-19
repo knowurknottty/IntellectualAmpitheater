@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
@@ -29,6 +29,7 @@ class ThreadModel(Base):
     __tablename__ = "threads"
     thread_id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 

@@ -1,0 +1,16 @@
+
+> intelamp-frontend@0.1.0 test
+> vitest --run
+
+
+ RUN  v3.2.7 /Users/knowurknot/capt-node-workspace/IntellectualAmpitheater/frontend
+
+ ✓ tests/api-client.test.ts (5 tests) 7ms
+ ✓ tests/seat-grid.test.tsx (3 tests) 62ms
+ ✓ tests/composer.test.tsx (6 tests) 68ms
+
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Start at  04:40:33
+   Duration  462ms (transform 73ms, setup 93ms, collect 164ms, tests 137ms, environment 465ms, prepare 88ms)
+

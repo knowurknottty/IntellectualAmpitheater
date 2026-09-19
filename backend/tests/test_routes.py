@@ -225,3 +225,47 @@ max_concurrent_requests = 1
     assert registered.definition.credential_env == "INTELAMP_FAKE_KEY"
     assert registered.adapter is not None
     assert getattr(registered.adapter, "_credential") == "fake-secret"
+
+
+@pytest.mark.asyncio
+async def test_stream_delivers_terminal_when_terminal_event_was_never_appended(tmp_path):
+    """Falsifier for the SSE silent-break race (found by operating the UI live).
+
+    Observed: a seat stayed at "running" for 30s while its receipt recorded a
+    failure 24ms after start. Root cause path: dispatch.finalize() commits the
+    terminal state BEFORE the terminal event is appended, and the events stream
+    ends silently when it sees an empty batch on an already-terminal run — so a
+    subscriber that polls inside that window never receives terminal.
+    """
+    from datetime import UTC, datetime
+
+    from intelamp.contracts import TerminalState
+
+    app, client, lifespan, _ = await make_client(tmp_path)
+    try:
+        services = app.state.services
+        seat = await create_seat(client)
+        run = await services.runs.create(
+            thread_id="thread-race",
+            seat_id=seat["seat_id"],
+            provider_id="test-provider",
+            model_id="test-model",
+            request_digest="sha256:test",
+            context_view_digest="sha256:test",
+            evidence_root_digest="sha256:test",
+            tool_policy_digest="sha256:test",
+        )
+        await services.runs.finalize(
+            run.run_id,
+            TerminalState.FAILED,
+            completed_at=datetime.now(UTC),
+            failure_class=FailureClass.PROVIDER_TIMEOUT,
+            output_digest="sha256:empty",
+        )
+        # Deliberate state: the run IS terminal but no terminal event was appended.
+        stream = await client.get(f"/api/runs/{run.run_id}/events")
+        assert stream.status_code == 200
+        assert "event: terminal" in stream.text
+        assert "provider_timeout" in stream.text
+    finally:
+        await close_client(client, lifespan)

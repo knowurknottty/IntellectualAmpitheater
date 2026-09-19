@@ -6,6 +6,7 @@ import type {
   RunEvent,
   RunReceipt,
   SeatRecord,
+  ThreadRecord,
 } from "./types";
 
 export class IntelAmpApiError extends Error {
@@ -24,6 +25,27 @@ type ClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
+/**
+ * Resolve a fetch implementation that is BOUND to the global object.
+ *
+ * `fetch` is a WebIDL operation on Window: invoking a detached reference with a
+ * different receiver — e.g. `this.fetchImpl(...)` where `this` is this client —
+ * throws "Failed to execute 'fetch' on 'Window': Illegal invocation". That single
+ * fault made every gateway call in the UI fail at once (0 seats loaded -> Send
+ * permanently disabled -> Threads/Providers/Compose all looked inert).
+ *
+ * An explicitly injected fetchImpl is honoured as-is so tests can pass a plain
+ * mock; only the implicit global default is bound.
+ */
+function resolveFetch(override?: typeof fetch): typeof fetch {
+  if (override) return override;
+  const globalFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
+  if (typeof globalFetch !== "function") {
+    throw new IntelAmpApiError(0, "fetch_unavailable", "No global fetch implementation is available");
+  }
+  return globalFetch.bind(globalThis);
+}
+
 type SubscribeOptions = {
   lastEventId?: number;
   signal?: AbortSignal;
@@ -34,9 +56,9 @@ export class IntelAmpClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
 
-  constructor({ baseUrl = "", fetchImpl = fetch }: ClientOptions = {}) {
+  constructor({ baseUrl = "", fetchImpl }: ClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = resolveFetch(fetchImpl);
   }
 
   private url(path: string): string {
@@ -99,6 +121,21 @@ export class IntelAmpClient {
 
   async getReceipt(runId: string): Promise<RunReceipt> {
     return await this.json<RunReceipt>(`/api/runs/${encodeURIComponent(runId)}/receipt`);
+  }
+
+  async listThreads(): Promise<ThreadRecord[]> {
+    return (await this.json<{ threads: ThreadRecord[] }>("/api/threads")).threads;
+  }
+
+  async createThread(title?: string): Promise<ThreadRecord> {
+    return await this.json<ThreadRecord>("/api/threads", {
+      method: "POST",
+      body: JSON.stringify({ title: title ?? null }),
+    });
+  }
+
+  async getThread(threadId: string): Promise<ThreadRecord> {
+    return await this.json<ThreadRecord>(`/api/threads/${encodeURIComponent(threadId)}`);
   }
 
   async subscribeRunEvents(runId: string, options: SubscribeOptions): Promise<void> {

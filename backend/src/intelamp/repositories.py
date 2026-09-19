@@ -7,8 +7,8 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from .contracts import GenerationConfig, RunEvent, SeatCreate, SeatRecord, TerminalState
-from .models import RunEventModel, RunModel, SeatModel
+from .contracts import GenerationConfig, RunEvent, SeatCreate, SeatRecord, TerminalState, ThreadCreate, ThreadRecord
+from .models import RunEventModel, RunModel, SeatModel, ThreadModel
 
 
 def _seat_record(row: SeatModel) -> SeatRecord:
@@ -166,3 +166,111 @@ class EventRepository:
             )
             for row in rows
         ]
+
+
+def _thread_record(
+    row: ThreadModel,
+    *,
+    run_count: int = 0,
+    last_run_at: datetime | None = None,
+) -> ThreadRecord:
+    return ThreadRecord(
+        thread_id=row.thread_id,
+        title=row.title,
+        created_at=row.created_at,
+        run_count=run_count,
+        last_run_at=last_run_at,
+        schema_version=row.schema_version,
+    )
+
+
+class ThreadRepository:
+    """Thread listing over explicit thread rows plus implicit threads derived from runs.
+
+    `runs.thread_id` carries no foreign key in the live schema, so historical runs
+    (for example `thread_local_default`) can reference a thread that has no row.
+    The listing therefore unions explicit thread rows with the distinct thread_ids
+    observed in runs, so no run is ever invisible. Reads never rewrite a run and
+    never backfill implicitly; nothing is hidden or renamed.
+    """
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def create(self, payload: ThreadCreate) -> ThreadRecord:
+        row = ThreadModel(
+            thread_id=f"thread_{uuid4().hex}",
+            title=payload.title,
+            created_at=datetime.now(UTC),
+        )
+        async with self._sessions() as session:
+            session.add(row)
+            await session.commit()
+        return _thread_record(row)
+
+    async def _activity(self, session: AsyncSession, thread_id: str) -> tuple[int, Any]:
+        count, last = (
+            await session.execute(
+                select(func.count(RunModel.run_id), func.max(RunModel.started_at)).where(
+                    RunModel.thread_id == thread_id
+                )
+            )
+        ).one()
+        return int(count or 0), last
+
+    async def get(self, thread_id: str) -> ThreadRecord | None:
+        async with self._sessions() as session:
+            row = await session.get(ThreadModel, thread_id)
+            count, last = await self._activity(session, thread_id)
+        if row is not None:
+            return _thread_record(row, run_count=count, last_run_at=last)
+        if count == 0:
+            return None
+        return ThreadRecord(
+            thread_id=thread_id,
+            title=None,
+            created_at=last or datetime.now(UTC),
+            run_count=count,
+            last_run_at=last,
+            schema_version=1,
+        )
+
+    async def list(self) -> list[ThreadRecord]:
+        async with self._sessions() as session:
+            explicit = (await session.scalars(select(ThreadModel))).all()
+            activity_rows = (
+                await session.execute(
+                    select(
+                        RunModel.thread_id,
+                        func.count(RunModel.run_id),
+                        func.max(RunModel.started_at),
+                    ).group_by(RunModel.thread_id)
+                )
+            ).all()
+        activity = {row[0]: (int(row[1] or 0), row[2]) for row in activity_rows}
+        records: list[ThreadRecord] = []
+        for row in explicit:
+            count, last = activity.get(row.thread_id, (0, None))
+            records.append(_thread_record(row, run_count=count, last_run_at=last))
+        known = {row.thread_id for row in explicit}
+        for thread_id, (count, last) in activity.items():
+            if thread_id in known:
+                continue
+            records.append(
+                ThreadRecord(
+                    thread_id=thread_id,
+                    title=None,
+                    created_at=last or datetime.now(UTC),
+                    run_count=count,
+                    last_run_at=last,
+                    schema_version=1,
+                )
+            )
+
+        def _sort_key(item: ThreadRecord) -> tuple[str, str]:
+            # str() keeps the key comparable even if SQLite returns naive stamps
+            # for some rows and timezone-aware ones for others.
+            return (str(item.last_run_at or item.created_at), item.thread_id)
+
+        records.sort(key=_sort_key, reverse=True)
+        return records
