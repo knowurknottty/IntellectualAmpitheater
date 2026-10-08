@@ -93,6 +93,7 @@ class OpenAICompatibleAdapter:
         payload = dict(request)
         payload["stream"] = True
         saw_done = False
+        provider_request_id: str | None = None
 
         try:
             async with self._client.stream(
@@ -103,6 +104,9 @@ class OpenAICompatibleAdapter:
             ) as response:
                 if not 200 <= response.status_code < 300:
                     raise self._status_error(response.status_code)
+                header_request_id = response.headers.get("x-request-id")
+                if header_request_id:
+                    provider_request_id = header_request_id
 
                 async for line in response.aiter_lines():
                     if cancel_event.is_set():
@@ -117,7 +121,10 @@ class OpenAICompatibleAdapter:
                     raw = line[5:].strip()
                     if raw == "[DONE]":
                         saw_done = True
-                        yield ProviderStreamEvent(event_type=ProviderStreamEventType.DONE, data={})
+                        done_data: dict[str, Any] = {}
+                        if provider_request_id:
+                            done_data["provider_request_id"] = provider_request_id
+                        yield ProviderStreamEvent(event_type=ProviderStreamEventType.DONE, data=done_data)
                         break
                     try:
                         item = json.loads(raw)
@@ -131,6 +138,11 @@ class OpenAICompatibleAdapter:
                             FailureClass.PROVIDER_PROTOCOL_ERROR,
                             "provider emitted non-object SSE JSON",
                         )
+
+                    if provider_request_id is None:
+                        chunk_id = item.get("id")
+                        if isinstance(chunk_id, str) and chunk_id:
+                            provider_request_id = chunk_id
 
                     usage = item.get("usage")
                     if isinstance(usage, Mapping):

@@ -90,7 +90,7 @@ describe("seat output and receipts", () => {
       request_digest: "sha256:req", context_view_digest: "sha256:ctx", evidence_root_digest: "sha256:evidence",
       tool_policy_digest: "sha256:tools", started_at: "2026-09-16T00:00:00Z", first_token_at: "2026-09-16T00:00:01Z",
       completed_at: "2026-09-16T00:00:02Z", terminal_state: "completed", input_tokens: 10, output_tokens: 4,
-      estimated_cost: null, provider_request_id: null, output_digest: "sha256:out", failure_class: null, retry_of_run_id: null,
+      provider_request_id: null, output_digest: "sha256:out", failure_class: null, retry_of_run_id: null,
     };
     const { rerender } = render(<Inspector seat={seat("a", "Alpha")} />);
     expect(screen.queryByText("sha256:req")).not.toBeInTheDocument();

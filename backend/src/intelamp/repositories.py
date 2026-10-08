@@ -111,6 +111,36 @@ class RunRepository:
             await session.commit()
         return row
 
+    async def completed_history(
+        self,
+        thread_id: str,
+        seat_id: str,
+        *,
+        exclude_run_id: str | None = None,
+        limit: int = 20,
+    ) -> list[RunModel]:
+        """Terminal completed runs for one seat in one thread, oldest first.
+
+        Only completed runs with a persisted prompt qualify; pre-migration
+        rows (prompt=None) and failed/cancelled runs never enter context.
+        """
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(RunModel)
+                    .where(
+                        RunModel.thread_id == thread_id,
+                        RunModel.seat_id == seat_id,
+                        RunModel.terminal_state == TerminalState.COMPLETED.value,
+                        RunModel.prompt.is_not(None),
+                    )
+                    .order_by(RunModel.started_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+        history = [row for row in rows if row.run_id != exclude_run_id]
+        return list(reversed(history))
+
     async def mark_first_token(self, run_id: str, at: datetime) -> None:
         async with self._sessions() as session:
             row = await session.get(RunModel, run_id)
@@ -146,6 +176,23 @@ class EventRepository:
             created_at=row.created_at,
             data=row.data,
         )
+
+    async def output_text(self, run_id: str) -> str:
+        """Reconstruct a run's streamed output from its chunk events."""
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(RunEventModel)
+                    .where(RunEventModel.run_id == run_id, RunEventModel.event_type == "chunk")
+                    .order_by(RunEventModel.sequence)
+                )
+            ).all()
+        parts: list[str] = []
+        for row in rows:
+            text = row.data.get("text") if isinstance(row.data, dict) else None
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
 
     async def list_after(self, run_id: str, sequence: int) -> list[RunEvent]:
         async with self._sessions() as session:

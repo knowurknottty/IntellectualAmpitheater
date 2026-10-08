@@ -50,7 +50,6 @@ def _receipt_from_row(row) -> RunReceipt:
         terminal_state=TerminalState(row.terminal_state),
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
-        estimated_cost=row.estimated_cost,
         provider_request_id=row.provider_request_id,
         output_digest=row.output_digest,
         failure_class=FailureClass(row.failure_class) if row.failure_class else None,

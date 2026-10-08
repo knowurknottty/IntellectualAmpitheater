@@ -175,6 +175,110 @@ async def test_retry_lineage_is_explicit(tmp_path):
         await db.dispose()
 
 
+class RecordingAdapter:
+    def __init__(self, chunks=("ok",), *, provider_request_id=None, error=None):
+        self.chunks = list(chunks)
+        self.provider_request_id = provider_request_id
+        self.error = error
+        self.payloads: list[dict] = []
+
+    async def list_models(self):
+        return ["model"]
+
+    async def stream_chat(self, request, cancel_event):
+        self.payloads.append(request)
+        for chunk in self.chunks:
+            yield ProviderStreamEvent(event_type=ProviderStreamEventType.DELTA, data={"text": chunk})
+        if self.error is not None:
+            raise self.error
+        done: dict = {}
+        if self.provider_request_id:
+            done["provider_request_id"] = self.provider_request_id
+        yield ProviderStreamEvent(event_type=ProviderStreamEventType.DONE, data=done)
+
+
+@pytest.mark.asyncio
+async def test_second_run_in_thread_receives_seat_history(tmp_path):
+    adapter = RecordingAdapter(chunks=("answer",))
+    db, seats, runs, events, dispatch = await harness(tmp_path, [provider("p")], {"p": adapter})
+    try:
+        seat = await seats.create(SeatCreate(display_name="One", provider_id="p", model_id="m"))
+        first = await dispatch.dispatch(DispatchRequest(thread_id="t", prompt="first question", seat_ids=[seat.seat_id]))
+        await dispatch.wait(first.run_ids[0])
+        second = await dispatch.dispatch(DispatchRequest(thread_id="t", prompt="follow up", seat_ids=[seat.seat_id]))
+        await dispatch.wait(second.run_ids[0])
+
+        assert adapter.payloads[0]["messages"] == [{"role": "user", "content": "first question"}]
+        assert adapter.payloads[1]["messages"] == [
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "follow up"},
+        ]
+        second_events = [event.event_type for event in await events.list_after(second.run_ids[0], 0)]
+        assert "context_assembled" in second_events
+        first_row = await runs.get(first.run_ids[0])
+        second_row = await runs.get(second.run_ids[0])
+        assert first_row.context_view_digest != second_row.context_view_digest
+        assert second_row.prompt == "follow up"
+    finally:
+        await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_other_seat_and_failed_runs_do_not_enter_context(tmp_path):
+    good = RecordingAdapter(chunks=("good-answer",))
+    bad = RecordingAdapter(error=ProviderAdapterError(FailureClass.PROVIDER_PROTOCOL_ERROR, "boom"))
+    db, seats, runs, events, dispatch = await harness(
+        tmp_path,
+        [provider("good"), provider("bad")],
+        {"good": good, "bad": bad},
+    )
+    try:
+        good_seat = await seats.create(SeatCreate(display_name="Good", provider_id="good", model_id="m"))
+        bad_seat = await seats.create(SeatCreate(display_name="Bad", provider_id="bad", model_id="m"))
+        accepted = await dispatch.dispatch(
+            DispatchRequest(thread_id="t", prompt="shared prompt", seat_ids=[good_seat.seat_id, bad_seat.seat_id])
+        )
+        await asyncio.gather(*(dispatch.wait(run_id) for run_id in accepted.run_ids))
+        follow = await dispatch.dispatch(DispatchRequest(thread_id="t", prompt="next", seat_ids=[bad_seat.seat_id]))
+        await dispatch.wait(follow.run_ids[0])
+        # The bad seat's own prior run failed, so its context is just the new prompt.
+        assert bad.payloads[-1]["messages"] == [{"role": "user", "content": "next"}]
+    finally:
+        await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_provider_request_id_is_persisted_on_the_run(tmp_path):
+    adapter = RecordingAdapter(chunks=("ok",), provider_request_id="chatcmpl-123")
+    db, seats, runs, events, dispatch = await harness(tmp_path, [provider("p")], {"p": adapter})
+    try:
+        seat = await seats.create(SeatCreate(display_name="One", provider_id="p", model_id="m"))
+        accepted = await dispatch.dispatch(DispatchRequest(thread_id="t", prompt="hello", seat_ids=[seat.seat_id]))
+        await dispatch.wait(accepted.run_ids[0])
+        row = await runs.get(accepted.run_ids[0])
+        assert row.provider_request_id == "chatcmpl-123"
+    finally:
+        await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unclassified_failure_is_logged_with_run_context(tmp_path, caplog):
+    adapter = RecordingAdapter(error=RuntimeError("adapter exploded"))
+    db, seats, runs, events, dispatch = await harness(tmp_path, [provider("p")], {"p": adapter})
+    try:
+        seat = await seats.create(SeatCreate(display_name="One", provider_id="p", model_id="m"))
+        accepted = await dispatch.dispatch(DispatchRequest(thread_id="t", prompt="hello", seat_ids=[seat.seat_id]))
+        with caplog.at_level("ERROR", logger="intelamp.dispatch"):
+            await dispatch.wait(accepted.run_ids[0])
+        row = await runs.get(accepted.run_ids[0])
+        assert row.terminal_state == TerminalState.FAILED.value
+        assert row.failure_class == FailureClass.UNKNOWN.value
+        assert any("unclassified" in record.message for record in caplog.records)
+    finally:
+        await db.dispose()
+
+
 @pytest.mark.asyncio
 async def test_missing_provider_never_substitutes_another_provider(tmp_path):
     fallback = ScriptedAdapter(chunks=("fallback",))

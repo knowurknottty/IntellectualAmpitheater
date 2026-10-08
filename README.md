@@ -13,6 +13,8 @@ This repository does **not** claim the later Context Topology Matrix, Conversati
 - Real local llama.cpp acceptance on `127.0.0.1:8080` with no cloud credential.
 - Provider concurrency limits, sibling failure isolation, cancellation, retry lineage, and no silent provider/model substitution.
 - HTTP API with resumable per-run SSE using `Last-Event-ID`.
+
+- Per-seat conversation context: a run's payload includes that seat's own prior completed exchanges in the thread (bounded: 20 runs / 24k chars, whole exchanges only), and the receipt's `context_view_digest` is taken over the exact message list sent. Failure classes are logged server-side, and provider request IDs land on receipts. The always-null `estimated_cost` receipt field was removed rather than populated with invented pricing.
 - React/TypeScript seat shell, targetable composer, capability-loss acknowledgement, Stop action, typed failure states, and receipt inspector.
 - Mobile-focused seat behavior, `100dvh`, 44 px controls, 16 px mobile prompt input, visible focus, and reduced-motion CSS.
 

@@ -23,6 +23,9 @@ Allowed classifications are exactly: `native`, `adapted`, `superior_replacement`
 | Export / import / share | `unverified` | Not implemented in Tranche 0 |
 | Responsive mobile web | `native` | `frontend/tests/seat-grid.test.tsx`; responsive CSS in `frontend/src/styles.css`; browser acceptance still recorded separately |
 | Local-first self hosting | `native` | Loopback gateway/UI architecture; `evidence/task6-http-gateway.md`; no cloud credential required for local provider |
+| Multi-turn seat context (own thread history) | `native` | `backend/tests/test_dispatch.py` (`test_second_run_in_thread_receives_seat_history`, `test_other_seat_and_failed_runs_do_not_enter_context`); prompt persisted per run (migration `0003_run_prompt`); receipt `context_view_digest` covers the exact messages sent |
+
+Receipt honesty note (2026-10-08): `provider_request_id` is now populated from the provider stream (chunk `id` or `x-request-id` header) when the provider supplies one. `estimated_cost` was removed from the receipt contract instead of remaining a permanently-null field; the dormant database column is retained for schema compatibility. Cost surfacing stays `unverified` above until real pricing data exists.
 
 ## Inversion-native differentiators
 

@@ -148,7 +148,6 @@ class RunReceipt(StrictModel):
     terminal_state: TerminalState
     input_tokens: int | None = None
     output_tokens: int | None = None
-    estimated_cost: float | None = None
     provider_request_id: str | None = None
     output_digest: str | None = None
     failure_class: FailureClass | None = None

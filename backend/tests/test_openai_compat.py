@@ -57,6 +57,20 @@ async def test_stream_parser_emits_delta_usage_and_done_from_recorded_sse_fixtur
     assert usage == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
 
 
+SSE_WITH_ID = "data: {\"id\":\"chatcmpl-xyz\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+async def test_done_event_carries_provider_request_id_from_chunks():
+    adapter, client = adapter_for(body=SSE_WITH_ID)
+    try:
+        events = await collect(adapter)
+    finally:
+        await client.aclose()
+    done = next(event for event in events if event.event_type is ProviderStreamEventType.DONE)
+    assert done.data.get("provider_request_id") == "chatcmpl-xyz"
+
+
 @pytest.mark.asyncio
 async def test_done_marker_is_required_so_truncated_stream_is_interrupted():
     body = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'

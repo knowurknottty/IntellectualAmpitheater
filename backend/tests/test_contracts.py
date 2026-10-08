@@ -44,7 +44,7 @@ def test_receipt_unknown_usage_stays_none_and_round_trips_digests() -> None:
     )
     assert receipt.input_tokens is None
     assert receipt.output_tokens is None
-    assert receipt.estimated_cost is None
+    assert not hasattr(receipt, "estimated_cost")
     restored = RunReceipt.model_validate_json(receipt.model_dump_json())
     assert restored.request_digest == "sha256:req"
     assert restored.context_view_digest == "sha256:ctx"

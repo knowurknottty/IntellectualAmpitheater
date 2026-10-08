@@ -75,7 +75,6 @@ export type RunReceipt = {
   terminal_state: TerminalState;
   input_tokens?: number | null;
   output_tokens?: number | null;
-  estimated_cost?: number | null;
   provider_request_id?: string | null;
   output_digest?: string | null;
   failure_class?: string | null;
