@@ -69,6 +69,7 @@ class RunModel(Base):
     output_digest: Mapped[str | None] = mapped_column(String, nullable=True)
     failure_class: Mapped[str | None] = mapped_column(String, nullable=True)
     prompt: Mapped[str | None] = mapped_column(String, nullable=True)
+    context_messages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     retry_of_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

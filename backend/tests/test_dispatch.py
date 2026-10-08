@@ -220,6 +220,9 @@ async def test_second_run_in_thread_receives_seat_history(tmp_path):
         second_row = await runs.get(second.run_ids[0])
         assert first_row.context_view_digest != second_row.context_view_digest
         assert second_row.prompt == "follow up"
+        # "What it saw" is persisted fact: the stored list is the sent list.
+        assert second_row.context_messages == adapter.payloads[1]["messages"]
+        assert first_row.context_messages == adapter.payloads[0]["messages"]
     finally:
         await db.dispose()
 

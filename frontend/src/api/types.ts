@@ -81,6 +81,14 @@ export type RunReceipt = {
   retry_of_run_id?: string | null;
 };
 
+export type ContextMessage = { role: string; content: string };
+
+export type RunContext = {
+  run_id: string;
+  context_view_digest: string;
+  messages: ContextMessage[] | null;
+};
+
 export type CancellationAcknowledgement = { run_id: string; cancel_requested: boolean };
 
 export type ThreadRecord = {

@@ -240,3 +240,5 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex="-
 .receipt-facts dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
 @media (max-width: 980px) { #composer, #inspector { grid-column: 2; } #inspector { grid-row: 4; } }
 @media (max-width: 720px) { #composer { grid-column: 1; grid-row: 3; } #inspector { grid-column: 1; grid-row: 4; } .composer { grid-template-columns: 1fr; } .composer-targets, .composer-prompt, .composer textarea, .provider-warnings, .composer-actions { grid-column: 1; grid-row: auto; } .composer-actions { flex-direction: row; } .composer-action { flex: 1; min-width: 0; } }
+.context-list { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; }
+.context-list pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; margin: 2px 0 0; }

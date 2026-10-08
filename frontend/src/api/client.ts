@@ -3,6 +3,7 @@ import type {
   DispatchAccepted,
   DispatchRequest,
   ProviderSummary,
+  RunContext,
   RunEvent,
   RunReceipt,
   SeatRecord,
@@ -121,6 +122,10 @@ export class IntelAmpClient {
 
   async getReceipt(runId: string): Promise<RunReceipt> {
     return await this.json<RunReceipt>(`/api/runs/${encodeURIComponent(runId)}/receipt`);
+  }
+
+  async getRunContext(runId: string): Promise<RunContext> {
+    return await this.json<RunContext>(`/api/runs/${encodeURIComponent(runId)}/context`);
   }
 
   async listThreads(): Promise<ThreadRecord[]> {

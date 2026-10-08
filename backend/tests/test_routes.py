@@ -269,3 +269,40 @@ async def test_stream_delivers_terminal_when_terminal_event_was_never_appended(t
         assert "provider_timeout" in stream.text
     finally:
         await close_client(client, lifespan)
+
+
+async def test_run_context_endpoint_returns_exact_messages_sent(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path)
+    try:
+        seat = await create_seat(client)
+        first = await client.post(
+            "/api/dispatch",
+            json={"thread_id": "thread-ctx", "prompt": "first", "seat_ids": [seat["seat_id"]]},
+        )
+        assert first.status_code == 202, first.text
+        first_run = first.json()["run_ids"][0]
+        # Wait for terminal state through the receipt endpoint.
+        for _ in range(100):
+            receipt = await client.get(f"/api/runs/{first_run}/receipt")
+            if receipt.status_code == 200:
+                break
+            await asyncio.sleep(0.02)
+        assert receipt.status_code == 200
+
+        second = await client.post(
+            "/api/dispatch",
+            json={"thread_id": "thread-ctx", "prompt": "second", "seat_ids": [seat["seat_id"]]},
+        )
+        second_run = second.json()["run_ids"][0]
+        context = await client.get(f"/api/runs/{second_run}/context")
+        assert context.status_code == 200
+        body = context.json()
+        assert body["run_id"] == second_run
+        assert body["messages"][0] == {"role": "user", "content": "first"}
+        assert body["messages"][-1] == {"role": "user", "content": "second"}
+        assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
+
+        missing = await client.get("/api/runs/run_nope/context")
+        assert missing.status_code == 404
+    finally:
+        await close_client(client, lifespan)

@@ -204,6 +204,22 @@ def create_router(services: RouteServices) -> APIRouter:
         requested = await services.dispatch.cancel(run_id)
         return {"run_id": run_id, "cancel_requested": requested}
 
+    @router.get("/runs/{run_id}/context")
+    async def run_context(run_id: str):
+        """The exact message list the provider received for this run.
+
+        Served from the persisted copy written at dispatch time, never
+        reconstructed. Legacy runs without a recorded list say so.
+        """
+        row = await services.runs.get(run_id)
+        if row is None:
+            return _error(404, "run_not_found", f"run not found: {run_id}")
+        return {
+            "run_id": row.run_id,
+            "context_view_digest": row.context_view_digest,
+            "messages": row.context_messages,
+        }
+
     @router.get("/runs/{run_id}/receipt")
     async def receipt(run_id: str):
         row = await services.runs.get(run_id)

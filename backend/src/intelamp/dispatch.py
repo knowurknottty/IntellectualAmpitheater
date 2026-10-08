@@ -121,6 +121,7 @@ class DispatchEngine:
                 model_id=seat.model_id,
                 provider_family=seat.provider_family,
                 prompt=request.prompt,
+                context_messages=messages,
                 request_digest=_request_digest(request, seat),
                 context_view_digest=_sha256_json(
                     {"seat_id": seat.seat_id, "context_view_id": seat.context_view_id, "messages": messages}
