@@ -107,6 +107,25 @@ export type EffectiveVoices = {
   clusters: VoiceCluster[];
 };
 
+export type SeatAnchor = {
+  seat_id: string;
+  model_id: string;
+  source_run_id: string;
+  reveal_run_id: string | null;
+  reveal_state: string | null;
+  self_similarity: number | null;
+  toward_majority_before: number | null;
+  toward_majority_after: number | null;
+  anchoring_delta: number | null;
+};
+
+export type AnchoringReport = {
+  dispatch_id: string;
+  reveal_dispatch_id: string | null;
+  label: string;
+  seats: SeatAnchor[];
+};
+
 export type ReplayOverrides = {
   model_id?: string;
   prompt?: string;

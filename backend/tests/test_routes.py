@@ -418,3 +418,92 @@ async def test_counterfactual_prompt_change_keeps_model(tmp_path):
         assert all(m["content"] != "hello" for m in context["messages"][:-1] if m["role"] == "assistant")
     finally:
         await close_client(client, lifespan)
+
+
+class RevealAdapter:
+    """Seat answers keyed by model; one seat holds, one copies its peer."""
+
+    async def list_models(self):
+        return ["test-model", "other-model"]
+
+    async def stream_chat(self, request, cancel_event):
+        messages = request["messages"]
+        revealed = any("other seats answered" in m.get("content", "").lower() for m in messages)
+        if request["model"] == "other-model":
+            text = "beta shared answer"
+        elif revealed:
+            text = "beta shared answer"
+        else:
+            text = "alpha unique answer"
+        yield ProviderStreamEvent(event_type=ProviderStreamEventType.DELTA, data={"text": text})
+        yield ProviderStreamEvent(event_type=ProviderStreamEventType.DONE, data={})
+
+
+async def test_reveal_round_and_anchoring_report(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path, adapter=RevealAdapter())
+    try:
+        seat_a = await create_seat(client, name="A", model_id="test-model")
+        seat_b = await create_seat(client, name="B", model_id="other-model")
+        accepted = await client.post(
+            "/api/dispatch",
+            json={"thread_id": "thread-reveal", "prompt": "the question", "seat_ids": [seat_a["seat_id"], seat_b["seat_id"]]},
+        )
+        assert accepted.status_code == 202, accepted.text
+        dispatch_id = accepted.json()["dispatch_id"]
+        for run_id in accepted.json()["run_ids"]:
+            for _ in range(100):
+                receipt = await client.get(f"/api/runs/{run_id}/receipt")
+                if receipt.status_code == 200:
+                    break
+                await asyncio.sleep(0.02)
+            assert receipt.status_code == 200
+
+        reveal = await client.post(f"/api/dispatch/{dispatch_id}/reveal")
+        assert reveal.status_code == 202, reveal.text
+        reveal_ids = reveal.json()["run_ids"]
+        for run_id in reveal_ids:
+            for _ in range(100):
+                receipt = await client.get(f"/api/runs/{run_id}/receipt")
+                if receipt.status_code == 200:
+                    break
+                await asyncio.sleep(0.02)
+            assert receipt.status_code == 200
+
+        # Second reveal is refused: one sealed round gets one reveal.
+        again = await client.post(f"/api/dispatch/{dispatch_id}/reveal")
+        assert again.status_code == 409
+
+        report = await client.get(f"/api/dispatch/{dispatch_id}/anchoring")
+        assert report.status_code == 200
+        seats = {entry["model_id"]: entry for entry in report.json()["seats"]}
+        assert seats["other-model"]["anchoring_delta"] == 0.0
+        assert seats["other-model"]["self_similarity"] == 1.0
+        assert seats["test-model"]["toward_majority_after"] == 1.0
+        assert seats["test-model"]["anchoring_delta"] > 0.3
+
+        # Reveal runs must not pollute later conversation context.
+        follow = await client.post(
+            "/api/dispatch",
+            json={"thread_id": "thread-reveal", "prompt": "next question", "seat_ids": [seat_a["seat_id"]]},
+        )
+        follow_id = follow.json()["run_ids"][0]
+        context = (await client.get(f"/api/runs/{follow_id}/context")).json()
+        assistants = [m["content"] for m in context["messages"] if m["role"] == "assistant"]
+        assert assistants == ["alpha unique answer"]
+    finally:
+        await close_client(client, lifespan)
+
+
+async def test_reveal_requires_two_completed_seats(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path)
+    try:
+        seat = await create_seat(client)
+        run_id, _ = await _dispatch_and_wait(client, "thread-solo", "q", seat["seat_id"])
+        services = app.state.services
+        row = await services.runs.get(run_id)
+        refused = await client.post(f"/api/dispatch/{row.dispatch_id}/reveal")
+        assert refused.status_code == 422
+        missing = await client.post("/api/dispatch/dispatch_nope/reveal")
+        assert missing.status_code == 404
+    finally:
+        await close_client(client, lifespan)

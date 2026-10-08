@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .contracts import GenerationConfig, RunEvent, SeatCreate, SeatRecord, TerminalState, ThreadCreate, ThreadRecord
@@ -153,6 +153,10 @@ class RunRepository:
                         RunModel.seat_id == seat_id,
                         RunModel.terminal_state == TerminalState.COMPLETED.value,
                         RunModel.prompt.is_not(None),
+                        # Derived runs (reveal rounds, counterfactual replays)
+                        # are measurements, not conversation: they never enter
+                        # a seat's later context. Legacy rows predate run_kind.
+                        or_(RunModel.run_kind == "ordinary", RunModel.run_kind.is_(None)),
                     )
                     .order_by(RunModel.started_at.desc())
                     .limit(limit)
@@ -160,6 +164,27 @@ class RunRepository:
             ).all()
         history = [row for row in rows if row.run_id != exclude_run_id]
         return list(reversed(history))
+
+    async def runs_for_dispatch(self, dispatch_id: str) -> list[RunModel]:
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(RunModel)
+                    .where(RunModel.dispatch_id == dispatch_id)
+                    .order_by(RunModel.started_at)
+                )
+            ).all()
+        return list(rows)
+
+    async def runs_for_sources(self, source_run_ids: list[str], *, run_kind: str | None = None) -> list[RunModel]:
+        if not source_run_ids:
+            return []
+        async with self._sessions() as session:
+            query = select(RunModel).where(RunModel.source_run_id.in_(source_run_ids))
+            if run_kind is not None:
+                query = query.where(RunModel.run_kind == run_kind)
+            rows = (await session.scalars(query.order_by(RunModel.started_at))).all()
+        return list(rows)
 
     async def mark_first_token(self, run_id: str, at: datetime) -> None:
         async with self._sessions() as session:

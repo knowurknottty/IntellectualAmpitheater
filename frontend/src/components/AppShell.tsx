@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IntelAmpClient } from "../api/client";
-import type { EffectiveVoices, ProviderSummary, RunEvent, SeatRecord, ThreadRecord } from "../api/types";
+import type { AnchoringReport, EffectiveVoices, ProviderSummary, RunEvent, SeatRecord, ThreadRecord } from "../api/types";
 import { Composer } from "./Composer";
 import { Inspector } from "./Inspector";
 import { SeatGrid, type SeatStatus, type SeatView } from "./SeatGrid";
@@ -37,6 +37,8 @@ export function AppShell({ seats: controlledSeats, providers: controlledProvider
   const [threads, setThreads] = useState<ThreadRecord[]>([]);
   const [activeThreadId, setActiveThreadId] = useState("");
   const [voices, setVoices] = useState<EffectiveVoices | null>(null);
+  const [anchoring, setAnchoring] = useState<AnchoringReport | null>(null);
+  const [panelNote, setPanelNote] = useState<string | null>(null);
   const runToSeat = useRef(new Map<string, string>());
 
   useEffect(() => { if (controlledSeats) setLiveSeats(controlledSeats); }, [controlledSeats]);
@@ -99,6 +101,20 @@ export function AppShell({ seats: controlledSeats, providers: controlledProvider
   };
   const cancel = async (runId: string) => { if (onCancel) return await onCancel(runId); await gateway.cancelRun(runId); };
 
+  const reveal = async () => {
+    if (!voices?.dispatch_id) return;
+    setPanelNote(null);
+    try {
+      const accepted = await gateway.revealDispatch(voices.dispatch_id);
+      setPanelNote(`Reveal round dispatched (${accepted.run_ids.length} seats). Revisions are recorded as runs and stay out of thread history.`);
+    } catch (error: unknown) { setPanelNote(error instanceof Error ? error.message : "Reveal refused"); }
+  };
+  const showAnchoring = async () => {
+    if (!voices?.dispatch_id) return;
+    try { setAnchoring(await gateway.getAnchoring(voices.dispatch_id)); }
+    catch (error: unknown) { setPanelNote(error instanceof Error ? error.message : "Anchoring unavailable"); }
+  };
+
   const seatStatusKey = liveSeats.map((seat) => seat.status).join(",");
   useEffect(() => {
     if (!activeThreadId) { setVoices(null); return; }
@@ -112,7 +128,7 @@ export function AppShell({ seats: controlledSeats, providers: controlledProvider
   return <div className="intelamp-shell">
     <nav className="workspace-nav" aria-label="Workspace navigation"><div className="brand-mark" aria-label="IntelAMP">IA</div><button type="button" onClick={() => focusRegion("seat-workspace")}>Threads</button><button type="button" onClick={() => focusRegion("inspector")}>Providers</button><button type="button" onClick={() => focusRegion("composer")}>Compose</button></nav>
     <header className="run-status" aria-label="Run status"><div><span className="run-status__brand">INTELAMP</span><span className="run-status__divider" aria-hidden="true">/</span><span>{liveSeats.length} {liveSeats.length === 1 ? "seat" : "seats"}</span>{voices && voices.completed > 0 && <><span className="run-status__divider" aria-hidden="true">/</span><span>{voices.effective_voices} effective {voices.effective_voices === 1 ? "voice" : "voices"}</span></>}</div><strong>{activeCount > 0 ? `${activeCount} running` : "No active run"}</strong></header>
-    <main id="seat-workspace" className="seat-workspace" aria-label="Seat workspace" tabIndex={-1}>{gatewayError && <p className="gateway-error" role="alert">{gatewayError}</p>}<div className="thread-control"><label><span>Thread</span><select aria-label="Thread" value={activeThreadId} onChange={(event) => setActiveThreadId(event.target.value)}>{threads.map((thread) => <option value={thread.thread_id} key={thread.thread_id}>{thread.title ?? thread.thread_id}</option>)}</select></label><button type="button" onClick={() => void newThread()}>New thread</button></div>{liveSeats.length > 0 && <label className="focused-seat-control"><span>Focused seat</span><select aria-label="Focused seat" value={focusedSeat?.seatId ?? ""} onChange={(event) => setFocusedSeatId(event.target.value)}>{liveSeats.map((seat) => <option value={seat.seatId} key={seat.seatId}>{seat.displayName}</option>)}</select></label>}<SeatGrid seats={liveSeats} focusedSeatId={focusedSeat?.seatId} /></main>
+    <main id="seat-workspace" className="seat-workspace" aria-label="Seat workspace" tabIndex={-1}>{gatewayError && <p className="gateway-error" role="alert">{gatewayError}</p>}<div className="thread-control"><label><span>Thread</span><select aria-label="Thread" value={activeThreadId} onChange={(event) => setActiveThreadId(event.target.value)}>{threads.map((thread) => <option value={thread.thread_id} key={thread.thread_id}>{thread.title ?? thread.thread_id}</option>)}</select></label><button type="button" onClick={() => void newThread()}>New thread</button>{voices && voices.completed >= 2 && voices.dispatch_id && <><button type="button" onClick={() => void reveal()}>Reveal round</button><button type="button" onClick={() => void showAnchoring()}>Anchoring</button></>}</div>{panelNote && <p>{panelNote}</p>}{anchoring && <section className="anchoring-report" aria-label="Anchoring report"><p>{anchoring.label}</p><ul>{anchoring.seats.map((entry) => <li key={entry.source_run_id}>{entry.model_id}: {entry.anchoring_delta === null ? `reveal ${entry.reveal_state ?? "not run"}` : `anchoring delta ${entry.anchoring_delta > 0 ? "+" : ""}${entry.anchoring_delta} (self-similarity ${entry.self_similarity})`}</li>)}</ul></section>}{liveSeats.length > 0 && <label className="focused-seat-control"><span>Focused seat</span><select aria-label="Focused seat" value={focusedSeat?.seatId ?? ""} onChange={(event) => setFocusedSeatId(event.target.value)}>{liveSeats.map((seat) => <option value={seat.seatId} key={seat.seatId}>{seat.displayName}</option>)}</select></label>}<SeatGrid seats={liveSeats} focusedSeatId={focusedSeat?.seatId} /></main>
     <div id="composer" tabIndex={-1}><Composer seats={liveSeats} providers={liveProviders} onDispatch={dispatch} onCancel={cancel} /></div>
     <div id="inspector" tabIndex={-1}><Inspector seat={focusedSeat} client={gateway} /></div>
   </div>;

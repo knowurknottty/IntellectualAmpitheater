@@ -105,6 +105,9 @@ class DispatchEngine:
         seat_overrides: Mapping[str, Mapping[str, Any]] | None = None,
         history_before_run_id: str | None = None,
         seat_events: Mapping[str, list[tuple[str, Mapping[str, Any]]]] | None = None,
+        explicit_messages: Mapping[str, list[dict[str, str]]] | None = None,
+        source_run_ids: Mapping[str, str] | None = None,
+        run_kind: str = "ordinary",
     ) -> DispatchAccepted:
         retry_of = retry_of or {}
         seat_overrides = seat_overrides or {}
@@ -134,7 +137,11 @@ class DispatchEngine:
                 key: value for key, value in override.items() if key in {"temperature", "top_p", "seed", "max_output_tokens", "reasoning_control"}
             }
             effective_generation = seat.generation_config.model_copy(update=generation_overrides)
-            messages, history_runs = await self._assemble_context(request, seat, history_cutoff=history_cutoff)
+            if explicit_messages is not None and seat.seat_id in explicit_messages:
+                messages = [dict(message) for message in explicit_messages[seat.seat_id]]
+                history_runs = 0
+            else:
+                messages, history_runs = await self._assemble_context(request, seat, history_cutoff=history_cutoff)
             run = await self._runs.create(
                 dispatch_id=dispatch_id,
                 thread_id=request.thread_id,
@@ -145,6 +152,8 @@ class DispatchEngine:
                 provider_family=seat.provider_family,
                 prompt=request.prompt,
                 context_messages=messages,
+                run_kind=run_kind,
+                source_run_id=(source_run_ids or {}).get(seat.seat_id),
                 request_digest=_request_digest(request, seat, model_id=effective_model, generation_config=effective_generation),
                 context_view_digest=_sha256_json(
                     {"seat_id": seat.seat_id, "context_view_id": seat.context_view_id, "messages": messages}

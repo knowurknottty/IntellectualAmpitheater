@@ -12,6 +12,7 @@ from .contracts import DispatchRequest, FailureClass, GenerationConfig, RunRecei
 from .dispatch import DispatchEngine
 from .registry import ProviderRegistry
 from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
+from .anchoring import seat_anchor_report
 from .voices import compute_effective_voices
 
 
@@ -282,6 +283,7 @@ def create_router(services: RouteServices) -> APIRouter:
                 retry_of={source.seat_id: run_id},
                 seat_overrides={source.seat_id: seat_override},
                 history_before_run_id=run_id,
+                run_kind="counterfactual",
                 seat_events={
                     source.seat_id: [
                         (
@@ -294,6 +296,97 @@ def create_router(services: RouteServices) -> APIRouter:
         except (KeyError, ValueError) as exc:
             return _error(422, "counterfactual_dispatch_invalid", str(exc))
         return accepted
+
+    @router.post("/dispatch/{dispatch_id}/reveal", status_code=202)
+    async def reveal_round(dispatch_id: str):
+        """Sealed Reveal: each seat sees its peers' answers and may revise.
+
+        Round one stayed blind (isolated dispatch). This round shows every
+        seat the other seats' answers; revisions are new runs (kind=reveal)
+        that never enter conversation history. One reveal per dispatch.
+        """
+        rows = await services.runs.runs_for_dispatch(dispatch_id)
+        if not rows:
+            return _error(404, "dispatch_not_found", f"dispatch not found: {dispatch_id}")
+        completed = [row for row in rows if row.terminal_state == TerminalState.COMPLETED.value and row.prompt]
+        if len(completed) < 2:
+            return _error(422, "reveal_requires_two_completed", "reveal needs at least two completed seats")
+        existing = await services.runs.runs_for_sources([row.run_id for row in completed], run_kind="reveal")
+        if existing:
+            return _error(409, "reveal_already_run", "this dispatch already had its reveal round")
+        outputs = {row.run_id: await services.events.output_text(row.run_id) for row in completed}
+        if any(not text.strip() for text in outputs.values()):
+            return _error(422, "reveal_requires_outputs", "every completed seat needs output text to reveal")
+
+        explicit: dict[str, list[dict[str, str]]] = {}
+        sources: dict[str, str] = {}
+        seat_events: dict[str, list] = {}
+        for row in completed:
+            peers = [other for other in completed if other.run_id != row.run_id]
+            peer_block = "\n\n".join(
+                f"[{other.model_id} via {other.provider_id}]\n{outputs[other.run_id]}" for other in peers
+            )
+            instruction = (
+                "The other seats answered the same prompt as follows:\n\n"
+                f"{peer_block}\n\n"
+                "Revise your answer if their answers change yours, or hold it if they do not. "
+                "Reply with your final answer only."
+            )
+            explicit[row.seat_id] = [
+                {"role": "user", "content": row.prompt or ""},
+                {"role": "assistant", "content": outputs[row.run_id]},
+                {"role": "user", "content": instruction},
+            ]
+            sources[row.seat_id] = row.run_id
+            seat_events[row.seat_id] = [
+                ("reveal", {"source_dispatch_id": dispatch_id, "source_run_id": row.run_id})
+            ]
+        accepted = await services.dispatch.dispatch(
+            DispatchRequest(
+                thread_id=completed[0].thread_id,
+                prompt="Reveal round: revise or hold after seeing peer answers.",
+                seat_ids=[row.seat_id for row in completed],
+            ),
+            explicit_messages=explicit,
+            source_run_ids=sources,
+            run_kind="reveal",
+            seat_events=seat_events,
+        )
+        return accepted
+
+    @router.get("/dispatch/{dispatch_id}/anchoring")
+    async def anchoring_report(dispatch_id: str):
+        """Per-seat Anchoring Delta for a dispatch's reveal round (exploratory)."""
+        rows = await services.runs.runs_for_dispatch(dispatch_id)
+        if not rows:
+            return _error(404, "dispatch_not_found", f"dispatch not found: {dispatch_id}")
+        completed = [row for row in rows if row.terminal_state == TerminalState.COMPLETED.value]
+        reveal_runs = await services.runs.runs_for_sources([row.run_id for row in completed], run_kind="reveal")
+        reveal_by_source = {row.source_run_id: row for row in reveal_runs}
+        outputs = {row.run_id: await services.events.output_text(row.run_id) for row in completed}
+        seats_report = []
+        for row in completed:
+            reveal = reveal_by_source.get(row.run_id)
+            revised = await services.events.output_text(reveal.run_id) if reveal and reveal.terminal_state else None
+            peers = [outputs[other.run_id] for other in completed if other.run_id != row.run_id]
+            seats_report.append(
+                seat_anchor_report(
+                    seat_id=row.seat_id,
+                    model_id=row.model_id,
+                    source_run_id=row.run_id,
+                    reveal_run_id=reveal.run_id if reveal else None,
+                    reveal_state=reveal.terminal_state if reveal else None,
+                    original=outputs[row.run_id],
+                    revised=revised,
+                    peers_original=peers,
+                )
+            )
+        return {
+            "dispatch_id": dispatch_id,
+            "reveal_dispatch_id": reveal_runs[0].dispatch_id if reveal_runs else None,
+            "label": "exploratory: lexical movement toward peers; movement is not correctness",
+            "seats": seats_report,
+        }
 
     @router.get("/runs/{run_id}/context")
     async def run_context(run_id: str):

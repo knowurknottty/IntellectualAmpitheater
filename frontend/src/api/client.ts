@@ -1,4 +1,5 @@
 import type {
+  AnchoringReport,
   CancellationAcknowledgement,
   DispatchAccepted,
   DispatchRequest,
@@ -124,6 +125,14 @@ export class IntelAmpClient {
 
   async getReceipt(runId: string): Promise<RunReceipt> {
     return await this.json<RunReceipt>(`/api/runs/${encodeURIComponent(runId)}/receipt`);
+  }
+
+  async revealDispatch(dispatchId: string): Promise<DispatchAccepted> {
+    return await this.json<DispatchAccepted>(`/api/dispatch/${encodeURIComponent(dispatchId)}/reveal`, { method: "POST" });
+  }
+
+  async getAnchoring(dispatchId: string): Promise<AnchoringReport> {
+    return await this.json<AnchoringReport>(`/api/dispatch/${encodeURIComponent(dispatchId)}/anchoring`);
   }
 
   async replayRun(runId: string, overrides: ReplayOverrides): Promise<DispatchAccepted> {
