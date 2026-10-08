@@ -34,11 +34,15 @@ Receipt honesty note (2026-10-08): `provider_request_id` is now populated from t
 | Context Topology Matrix | `unverified` | Future tranche |
 | Provider Capability Compiler with visible loss analysis | `native` | `backend/tests/test_capabilities.py`; `frontend/tests/composer.test.tsx` |
 | Conversation Git | `unverified` | Future tranche |
-| Counterfactual Replay Lab | `unverified` | Future tranche |
+| Counterfactual Replay Lab | `native` | Bounded slice: exactly-one-variable replay (`POST /api/runs/{id}/replay`); `backend/tests/test_routes.py` counterfactual tests; full lab (branching, batch sweeps) does not exist |
 | Tool Shadow Mode | `unverified` | Future tranche |
 | Compute Frontier | `unverified` | Receipts/timing primitives exist; frontier comparison/planner does not |
 | ThreadCapsules | `unverified` | Future tranche |
-| Epistemic Independence Ledger / False-Consensus Firewall | `unverified` | Future tranche; novelty claim also remains unproven |
+| Epistemic Independence Ledger / False-Consensus Firewall | `unverified` | Full firewall does not exist; two advisory slices are `native` below (Effective Voices, Mirage Lint); novelty claim also remains unproven |
+| "What it saw" (exact context inspection) | `native` | `GET /api/runs/{id}/context` serves the persisted message list; Inspector renders it verbatim; `backend/tests/test_routes.py::test_run_context_endpoint_returns_exact_messages_sent` |
+| Effective Voices (independence-discounted counting) | `native` | `backend/src/intelamp/voices.py`; `backend/tests/test_voices.py` incl. the same-model-two-providers falsifier; header display in AppShell |
+| Sealed Reveal + Anchoring Delta (exploratory) | `native` | `POST /api/dispatch/{id}/reveal`, `GET /api/dispatch/{id}/anchoring`; `backend/tests/test_anchoring.py`, reveal route tests; lexical movement only — not a correctness measure |
+| Consensus Mirage Lint (exploratory, advisory) | `native` | `GET /api/threads/{id}/mirage`; `backend/tests/test_mirage.py`; never blocks or fuses |
 
 ## Tranche 0 evidence rule
 

@@ -13,6 +13,7 @@ from .dispatch import DispatchEngine
 from .registry import ProviderRegistry
 from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
 from .anchoring import seat_anchor_report
+from .mirage import mirage_lint
 from .voices import compute_effective_voices
 
 
@@ -387,6 +388,30 @@ def create_router(services: RouteServices) -> APIRouter:
             "label": "exploratory: lexical movement toward peers; movement is not correctness",
             "seats": seats_report,
         }
+
+    @router.get("/threads/{thread_id}/mirage")
+    async def mirage(thread_id: str):
+        """Consensus Mirage Lint over the thread's latest dispatch (advisory)."""
+        thread = await services.threads.get(thread_id)
+        if thread is None:
+            return _error(404, "thread_not_found", f"thread not found: {thread_id}")
+        rows = await services.runs.latest_dispatch_runs(thread_id)
+        outputs = {row.run_id: await services.events.output_text(row.run_id) for row in rows}
+        result = mirage_lint(
+            [
+                {
+                    "run_id": row.run_id,
+                    "seat_id": row.seat_id,
+                    "provider_id": row.provider_id,
+                    "model_id": row.model_id,
+                    "terminal_state": row.terminal_state,
+                    "context_messages": row.context_messages,
+                }
+                for row in rows
+            ],
+            outputs,
+        )
+        return {"thread_id": thread_id, "dispatch_id": rows[0].dispatch_id if rows else None, **result}
 
     @router.get("/runs/{run_id}/context")
     async def run_context(run_id: str):

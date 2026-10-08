@@ -15,6 +15,16 @@ This repository does **not** claim the later Context Topology Matrix, Conversati
 - HTTP API with resumable per-run SSE using `Last-Event-ID`.
 
 - Per-seat conversation context: a run's payload includes that seat's own prior completed exchanges in the thread (bounded: 20 runs / 24k chars, whole exchanges only), and the receipt's `context_view_digest` is taken over the exact message list sent. Failure classes are logged server-side, and provider request IDs land on receipts. The always-null `estimated_cost` receipt field was removed rather than populated with invented pricing.
+
+- "What it saw": every run persists its exact message list; the Inspector renders it verbatim (`GET /api/runs/{id}/context`).
+
+- Effective Voices: the header counts independence-discounted voices for the latest dispatch — same model + same context counts once, however many providers carried it.
+
+- Counterfactual Seat: replay any terminal run changing exactly one variable (model, prompt, or one generation field). The replay sees exactly the source run's context; a model-only change reproduces the source's context digest.
+
+- Sealed Reveal + Anchoring Delta (exploratory): after a blind round, seats see peers' answers and may revise; per-seat lexical movement toward the majority is reported, labeled as movement — not correctness.
+
+- Consensus Mirage Lint (exploratory, advisory): flags when agreeing seats outnumber the effective voices behind them. Never blocks, never fuses.
 - React/TypeScript seat shell, targetable composer, capability-loss acknowledgement, Stop action, typed failure states, and receipt inspector.
 - Mobile-focused seat behavior, `100dvh`, 44 px controls, 16 px mobile prompt input, visible focus, and reduced-motion CSS.
 

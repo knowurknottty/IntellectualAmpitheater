@@ -4,6 +4,7 @@ import type {
   DispatchAccepted,
   DispatchRequest,
   EffectiveVoices,
+  MirageLint,
   ProviderSummary,
   ReplayOverrides,
   RunContext,
@@ -159,6 +160,10 @@ export class IntelAmpClient {
 
   async getThread(threadId: string): Promise<ThreadRecord> {
     return await this.json<ThreadRecord>(`/api/threads/${encodeURIComponent(threadId)}`);
+  }
+
+  async getMirageLint(threadId: string): Promise<MirageLint> {
+    return await this.json<MirageLint>(`/api/threads/${encodeURIComponent(threadId)}/mirage`);
   }
 
   async getEffectiveVoices(threadId: string): Promise<EffectiveVoices> {

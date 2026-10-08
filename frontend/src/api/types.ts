@@ -126,6 +126,19 @@ export type AnchoringReport = {
   seats: SeatAnchor[];
 };
 
+export type MirageLint = {
+  thread_id: string;
+  dispatch_id: string | null;
+  verdict: "mirage_risk" | "no_mirage_signal" | "insufficient_data";
+  seats: number;
+  completed: number;
+  effective_voices: number;
+  agreeing_seats: number;
+  similarity_threshold: number;
+  label: string;
+  reasons: string[];
+};
+
 export type ReplayOverrides = {
   model_id?: string;
   prompt?: string;
