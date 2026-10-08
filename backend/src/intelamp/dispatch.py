@@ -36,7 +36,7 @@ def _sha256_json(value: Any) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _request_digest(request: DispatchRequest, seat: SeatRecord) -> str:
+def _request_digest(request: DispatchRequest, seat: SeatRecord, *, model_id: str, generation_config) -> str:
     return _sha256_json(
         {
             "thread_id": request.thread_id,
@@ -44,8 +44,8 @@ def _request_digest(request: DispatchRequest, seat: SeatRecord) -> str:
             "prompt": request.prompt,
             "seat_id": seat.seat_id,
             "provider_id": seat.provider_id,
-            "model_id": seat.model_id,
-            "generation_config": seat.generation_config.model_dump(mode="json"),
+            "model_id": model_id,
+            "generation_config": generation_config.model_dump(mode="json"),
             "requested_capabilities": {
                 "required": sorted(request.requested_capabilities.required),
                 "optional": sorted(request.requested_capabilities.optional),
@@ -54,12 +54,19 @@ def _request_digest(request: DispatchRequest, seat: SeatRecord) -> str:
     )
 
 
-def _provider_payload(request: DispatchRequest, seat: SeatRecord, messages: list[dict[str, str]]) -> dict[str, Any]:
+def _provider_payload(
+    request: DispatchRequest,
+    seat: SeatRecord,
+    messages: list[dict[str, str]],
+    *,
+    model_id: str,
+    generation,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "model": seat.model_id,
+        "model": model_id,
         "messages": messages,
     }
-    generation = seat.generation_config
+    generation = generation
     if generation.temperature is not None:
         payload["temperature"] = generation.temperature
     if generation.top_p is not None:
@@ -95,8 +102,12 @@ class DispatchEngine:
         request: DispatchRequest,
         *,
         retry_of: Mapping[str, str] | None = None,
+        seat_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+        history_before_run_id: str | None = None,
+        seat_events: Mapping[str, list[tuple[str, Mapping[str, Any]]]] | None = None,
     ) -> DispatchAccepted:
         retry_of = retry_of or {}
+        seat_overrides = seat_overrides or {}
         unexpected_retry_seats = set(retry_of) - set(request.seat_ids)
         if unexpected_retry_seats:
             raise ValueError(f"retry lineage supplied for seats not in dispatch: {sorted(unexpected_retry_seats)}")
@@ -108,21 +119,33 @@ class DispatchEngine:
                 raise KeyError(f"seat not found: {seat_id}")
             resolved.append(seat)
 
+        history_cutoff: datetime | None = None
+        if history_before_run_id is not None:
+            anchor = await self._runs.get(history_before_run_id)
+            if anchor is not None:
+                history_cutoff = anchor.started_at
+
         dispatch_id = f"dispatch_{uuid4().hex}"
         run_ids: list[str] = []
         for seat in resolved:
-            messages, history_runs = await self._assemble_context(request, seat)
+            override = seat_overrides.get(seat.seat_id, {})
+            effective_model = override.get("model_id", seat.model_id)
+            generation_overrides = {
+                key: value for key, value in override.items() if key in {"temperature", "top_p", "seed", "max_output_tokens", "reasoning_control"}
+            }
+            effective_generation = seat.generation_config.model_copy(update=generation_overrides)
+            messages, history_runs = await self._assemble_context(request, seat, history_cutoff=history_cutoff)
             run = await self._runs.create(
                 dispatch_id=dispatch_id,
                 thread_id=request.thread_id,
                 turn_parent=request.turn_parent,
                 seat_id=seat.seat_id,
                 provider_id=seat.provider_id,
-                model_id=seat.model_id,
+                model_id=effective_model,
                 provider_family=seat.provider_family,
                 prompt=request.prompt,
                 context_messages=messages,
-                request_digest=_request_digest(request, seat),
+                request_digest=_request_digest(request, seat, model_id=effective_model, generation_config=effective_generation),
                 context_view_digest=_sha256_json(
                     {"seat_id": seat.seat_id, "context_view_id": seat.context_view_id, "messages": messages}
                 ),
@@ -131,6 +154,11 @@ class DispatchEngine:
                 retry_of_run_id=retry_of.get(seat.seat_id),
             )
             await self._events.append(run.run_id, "queued", {"dispatch_id": dispatch_id})
+            for event_type, data in (seat_events or {}).get(seat.seat_id, []):
+                # Appended synchronously, before the run task starts: event
+                # sequences are assigned max+1 per session, so post-hoc
+                # appends from the caller would race the task's own events.
+                await self._events.append(run.run_id, event_type, dict(data))
             if history_runs:
                 await self._events.append(
                     run.run_id,
@@ -140,7 +168,7 @@ class DispatchEngine:
             cancel_event = asyncio.Event()
             self._cancel_events[run.run_id] = cancel_event
             task = asyncio.create_task(
-                self._execute_run(run.run_id, request, seat, messages, cancel_event),
+                self._execute_run(run.run_id, request, seat, messages, cancel_event, model_id=effective_model, generation=effective_generation),
                 name=f"intelamp:{run.run_id}",
             )
             self._tasks[run.run_id] = task
@@ -152,19 +180,26 @@ class DispatchEngine:
         self,
         request: DispatchRequest,
         seat: SeatRecord,
+        *,
+        history_cutoff: datetime | None = None,
     ) -> tuple[list[dict[str, str]], int]:
         """Build the exact message list for a seat's run.
 
         The seat's own prior completed exchanges in this thread (prompt plus
         its reconstructed output) precede the new prompt, oldest first. The
         context digest on the run is taken over this list, so a receipt
-        proves what context the provider actually received.
+        proves what context the provider actually received. With
+        `history_cutoff` (counterfactual replay), only exchanges that
+        started before the anchor run count — the replay sees exactly the
+        context its source run saw, never the source's own answer.
         """
         history = await self._runs.completed_history(
             request.thread_id,
             seat.seat_id,
             limit=MAX_HISTORY_RUNS,
         )
+        if history_cutoff is not None:
+            history = [row for row in history if row.started_at < history_cutoff]
         exchanges: list[tuple[str, str]] = []
         for row in history:
             output = await self._events.output_text(row.run_id)
@@ -226,6 +261,9 @@ class DispatchEngine:
         seat: SeatRecord,
         messages: list[dict[str, str]],
         cancel_event: asyncio.Event,
+        *,
+        model_id: str | None = None,
+        generation=None,
     ) -> None:
         chunks: list[str] = []
         input_tokens: int | None = None
@@ -258,7 +296,10 @@ class DispatchEngine:
                     {"provider_id": seat.provider_id, "model_id": seat.model_id},
                 )
                 first_token_seen = False
-                async for event in registered.adapter.stream_chat(_provider_payload(request, seat, messages), cancel_event):
+                async for event in registered.adapter.stream_chat(
+                    _provider_payload(request, seat, messages, model_id=model_id or seat.model_id, generation=generation or seat.generation_config),
+                    cancel_event,
+                ):
                     if event.event_type is ProviderStreamEventType.DELTA:
                         text = event.data.get("text")
                         if isinstance(text, str) and text:

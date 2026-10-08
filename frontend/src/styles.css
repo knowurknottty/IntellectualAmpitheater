@@ -242,3 +242,5 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex="-
 @media (max-width: 720px) { #composer { grid-column: 1; grid-row: 3; } #inspector { grid-column: 1; grid-row: 4; } .composer { grid-template-columns: 1fr; } .composer-targets, .composer-prompt, .composer textarea, .provider-warnings, .composer-actions { grid-column: 1; grid-row: auto; } .composer-actions { flex-direction: row; } .composer-action { flex: 1; min-width: 0; } }
 .context-list { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; }
 .context-list pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; margin: 2px 0 0; }
+.replay-control { margin-top: 16px; display: grid; gap: 8px; }
+.replay-control input, .replay-control select { min-height: 44px; }

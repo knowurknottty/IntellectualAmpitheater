@@ -8,6 +8,9 @@ type InspectorProps = { seat?: SeatView; client?: IntelAmpClient };
 export function Inspector({ seat, client }: InspectorProps) {
   const [context, setContext] = useState<RunContext | null>(null);
   const [contextError, setContextError] = useState<string | null>(null);
+  const [replayField, setReplayField] = useState<"model_id" | "prompt" | "temperature">("model_id");
+  const [replayValue, setReplayValue] = useState("");
+  const [replayNote, setReplayNote] = useState<string | null>(null);
   if (!seat) return <aside className="inspector" aria-label="Inspector"><p className="eyebrow">INSPECTOR</p><h2>No seat selected</h2><p>Configure a seat to inspect provider and model identity.</p></aside>;
   const receipt = seat.receipt;
 
@@ -18,6 +21,20 @@ export function Inspector({ seat, client }: InspectorProps) {
       setContext(await client.getRunContext(receipt.run_id));
     } catch (error: unknown) {
       setContextError(error instanceof Error ? error.message : "Context unavailable");
+    }
+  }
+
+  async function submitReplay() {
+    if (!client || !receipt || !replayValue.trim()) return;
+    setReplayNote(null);
+    const overrides = replayField === "temperature"
+      ? { temperature: Number(replayValue) }
+      : { [replayField]: replayValue };
+    try {
+      const accepted = await client.replayRun(receipt.run_id, overrides);
+      setReplayNote(`Counterfactual dispatched: ${accepted.run_ids[0] ?? "unknown run"}. It saw the same context; exactly one variable changed.`);
+    } catch (error: unknown) {
+      setReplayNote(error instanceof Error ? error.message : "Replay refused");
     }
   }
   return (
@@ -41,6 +58,17 @@ export function Inspector({ seat, client }: InspectorProps) {
           {receipt.completed_at && <div><dt>Completed (gateway UTC)</dt><dd>{receipt.completed_at}</dd></div>}
         </dl>
         {client && !context && <button type="button" onClick={() => void showContext()}>What it saw</button>}
+        {client && <fieldset className="replay-control">
+          <legend>Counterfactual replay</legend>
+          <label><span>Change exactly one</span><select aria-label="Replay variable" value={replayField} onChange={(event) => setReplayField(event.target.value as typeof replayField)}>
+            <option value="model_id">Model</option>
+            <option value="prompt">Prompt</option>
+            <option value="temperature">Temperature</option>
+          </select></label>
+          <label><span>New value</span><input aria-label="Replay value" value={replayValue} onChange={(event) => setReplayValue(event.target.value)} /></label>
+          <button type="button" onClick={() => void submitReplay()} disabled={!replayValue.trim()}>Replay one change</button>
+          {replayNote && <p>{replayNote}</p>}
+        </fieldset>}
         {contextError && <p role="alert">{contextError}</p>}
         {context && (context.messages
           ? <ol className="context-list" aria-label="Exact messages sent to the provider">

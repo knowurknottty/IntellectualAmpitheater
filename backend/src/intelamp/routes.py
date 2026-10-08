@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Header
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from .contracts import DispatchRequest, FailureClass, RunReceipt, SeatCreate, TerminalState, ThreadCreate
+from .contracts import DispatchRequest, FailureClass, GenerationConfig, RunReceipt, SeatCreate, TerminalState, ThreadCreate
 from .dispatch import DispatchEngine
 from .registry import ProviderRegistry
 from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
@@ -226,6 +226,74 @@ def create_router(services: RouteServices) -> APIRouter:
             ]
         )
         return {"thread_id": thread_id, "dispatch_id": rows[0].dispatch_id if rows else None, **result}
+
+    @router.post("/runs/{run_id}/replay", status_code=202)
+    async def replay_run(run_id: str, overrides: dict[str, Any] = Body(...)):
+        """Counterfactual Seat: clone a terminal run changing exactly one variable.
+
+        Exactly one of model_id / prompt / generation fields may be supplied,
+        and it must actually differ. The new run links back via retry lineage
+        and carries a `counterfactual` event naming the changed field, so the
+        receipt pair differs in exactly one input.
+        """
+        replay_fields = {"model_id", "prompt", "temperature", "top_p", "seed", "max_output_tokens", "reasoning_control"}
+        source = await services.runs.get(run_id)
+        if source is None:
+            return _error(404, "run_not_found", f"run not found: {run_id}")
+        if source.terminal_state is None:
+            return _error(409, "run_not_terminal", f"run is not terminal: {run_id}")
+        if source.prompt is None:
+            return _error(409, "context_unavailable", "source run has no recorded prompt to replay")
+        unknown = set(overrides) - replay_fields
+        if unknown:
+            return _error(422, "counterfactual_unknown_field", f"unknown replay fields: {sorted(unknown)}")
+        if len(overrides) != 1:
+            return _error(422, "counterfactual_requires_exactly_one_change", "supply exactly one changed variable")
+        field, value = next(iter(overrides.items()))
+        seat = await services.seats.get(source.seat_id)
+        if seat is None:
+            return _error(404, "seat_not_found", f"seat not found: {source.seat_id}")
+        current: dict[str, Any] = {
+            "model_id": source.model_id,
+            "prompt": source.prompt,
+            **seat.generation_config.model_dump(mode="json"),
+        }
+        if value == current.get(field):
+            return _error(422, "counterfactual_no_change", f"{field} is unchanged; a counterfactual needs a real difference")
+        if field == "model_id" and (not isinstance(value, str) or not value.strip()):
+            return _error(422, "counterfactual_invalid_value", "model_id must be a non-empty string")
+        if field == "prompt" and (not isinstance(value, str) or not value.strip()):
+            return _error(422, "counterfactual_invalid_value", "prompt must be a non-empty string")
+        if field not in {"model_id", "prompt"}:
+            try:
+                GenerationConfig.model_validate({**seat.generation_config.model_dump(mode="json"), field: value})
+            except Exception as exc:
+                return _error(422, "counterfactual_invalid_value", str(exc))
+        new_prompt = value if field == "prompt" else source.prompt
+        seat_override = {} if field == "prompt" else {field: value}
+        try:
+            accepted = await services.dispatch.dispatch(
+                DispatchRequest(
+                    thread_id=source.thread_id,
+                    turn_parent=source.turn_parent,
+                    prompt=new_prompt,
+                    seat_ids=[source.seat_id],
+                ),
+                retry_of={source.seat_id: run_id},
+                seat_overrides={source.seat_id: seat_override},
+                history_before_run_id=run_id,
+                seat_events={
+                    source.seat_id: [
+                        (
+                            "counterfactual",
+                            {"source_run_id": run_id, "changed_field": field, "from": current.get(field), "to": value},
+                        )
+                    ]
+                },
+            )
+        except (KeyError, ValueError) as exc:
+            return _error(422, "counterfactual_dispatch_invalid", str(exc))
+        return accepted
 
     @router.get("/runs/{run_id}/context")
     async def run_context(run_id: str):

@@ -4,6 +4,7 @@ import type {
   DispatchRequest,
   EffectiveVoices,
   ProviderSummary,
+  ReplayOverrides,
   RunContext,
   RunEvent,
   RunReceipt,
@@ -123,6 +124,13 @@ export class IntelAmpClient {
 
   async getReceipt(runId: string): Promise<RunReceipt> {
     return await this.json<RunReceipt>(`/api/runs/${encodeURIComponent(runId)}/receipt`);
+  }
+
+  async replayRun(runId: string, overrides: ReplayOverrides): Promise<DispatchAccepted> {
+    return await this.json<DispatchAccepted>(`/api/runs/${encodeURIComponent(runId)}/replay`, {
+      method: "POST",
+      body: JSON.stringify(overrides),
+    });
   }
 
   async getRunContext(runId: string): Promise<RunContext> {

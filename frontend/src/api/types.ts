@@ -107,6 +107,15 @@ export type EffectiveVoices = {
   clusters: VoiceCluster[];
 };
 
+export type ReplayOverrides = {
+  model_id?: string;
+  prompt?: string;
+  temperature?: number;
+  top_p?: number;
+  seed?: number;
+  max_output_tokens?: number;
+};
+
 export type CancellationAcknowledgement = { run_id: string; cancel_requested: boolean };
 
 export type ThreadRecord = {

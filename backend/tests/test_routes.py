@@ -338,3 +338,83 @@ async def test_effective_voices_endpoint_counts_panel(tmp_path):
         assert missing.status_code == 404
     finally:
         await close_client(client, lifespan)
+
+
+async def _dispatch_and_wait(client, thread_id, prompt, seat_id):
+    accepted = await client.post(
+        "/api/dispatch",
+        json={"thread_id": thread_id, "prompt": prompt, "seat_ids": [seat_id]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()["run_ids"][0]
+    for _ in range(100):
+        receipt = await client.get(f"/api/runs/{run_id}/receipt")
+        if receipt.status_code == 200:
+            return run_id, receipt.json()
+        await asyncio.sleep(0.02)
+    raise AssertionError("run never became terminal")
+
+
+async def test_counterfactual_replay_changes_exactly_one_variable(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path)
+    try:
+        seat = await create_seat(client)
+        source_id, source_receipt = await _dispatch_and_wait(client, "thread-cf", "original prompt", seat["seat_id"])
+
+        # Zero or two changes are refused; an unchanged value is refused.
+        empty = await client.post(f"/api/runs/{source_id}/replay", json={})
+        assert empty.status_code == 422
+        two = await client.post(f"/api/runs/{source_id}/replay", json={"model_id": "other", "prompt": "changed"})
+        assert two.status_code == 422
+        same = await client.post(f"/api/runs/{source_id}/replay", json={"model_id": "test-model"})
+        assert same.status_code == 422
+        unknown = await client.post(f"/api/runs/{source_id}/replay", json={"nonsense": 1})
+        assert unknown.status_code == 422
+
+        replay = await client.post(f"/api/runs/{source_id}/replay", json={"model_id": "other-model"})
+        assert replay.status_code == 202, replay.text
+        replay_id = replay.json()["run_ids"][0]
+        assert replay_id != source_id
+        for _ in range(100):
+            receipt = await client.get(f"/api/runs/{replay_id}/receipt")
+            if receipt.status_code == 200:
+                break
+            await asyncio.sleep(0.02)
+        replay_receipt = receipt.json()
+        assert replay_receipt["model_id"] == "other-model"
+        assert replay_receipt["retry_of_run_id"] == source_id
+        assert replay_receipt["request_digest"] != source_receipt["request_digest"]
+        # Model-only change: the replay saw exactly the source's context.
+        assert replay_receipt["context_view_digest"] == source_receipt["context_view_digest"]
+
+        events = app.state.services.events
+        kinds = [event for event in await events.list_after(replay_id, 0) if event.event_type == "counterfactual"]
+        assert len(kinds) == 1
+        assert kinds[0].data["changed_field"] == "model_id"
+        assert kinds[0].data["from"] == "test-model"
+        assert kinds[0].data["to"] == "other-model"
+    finally:
+        await close_client(client, lifespan)
+
+
+async def test_counterfactual_prompt_change_keeps_model(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path)
+    try:
+        seat = await create_seat(client)
+        source_id, source_receipt = await _dispatch_and_wait(client, "thread-cf2", "before", seat["seat_id"])
+        replay = await client.post(f"/api/runs/{source_id}/replay", json={"prompt": "after"})
+        assert replay.status_code == 202, replay.text
+        replay_id = replay.json()["run_ids"][0]
+        for _ in range(100):
+            receipt = await client.get(f"/api/runs/{replay_id}/receipt")
+            if receipt.status_code == 200:
+                break
+            await asyncio.sleep(0.02)
+        replay_receipt = receipt.json()
+        assert replay_receipt["model_id"] == source_receipt["model_id"]
+        context = (await client.get(f"/api/runs/{replay_id}/context")).json()
+        assert context["messages"][-1] == {"role": "user", "content": "after"}
+        # The source run's own answer must not leak into the replay context.
+        assert all(m["content"] != "hello" for m in context["messages"][:-1] if m["role"] == "assistant")
+    finally:
+        await close_client(client, lifespan)
