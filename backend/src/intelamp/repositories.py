@@ -111,6 +111,26 @@ class RunRepository:
             await session.commit()
         return row
 
+    async def latest_dispatch_runs(self, thread_id: str) -> list[RunModel]:
+        """All runs of the most recent dispatch in a thread, oldest first."""
+        async with self._sessions() as session:
+            dispatch_id = await session.scalar(
+                select(RunModel.dispatch_id)
+                .where(RunModel.thread_id == thread_id, RunModel.dispatch_id.is_not(None))
+                .order_by(RunModel.started_at.desc())
+                .limit(1)
+            )
+            if dispatch_id is None:
+                return []
+            rows = (
+                await session.scalars(
+                    select(RunModel)
+                    .where(RunModel.dispatch_id == dispatch_id)
+                    .order_by(RunModel.started_at)
+                )
+            ).all()
+        return list(rows)
+
     async def completed_history(
         self,
         thread_id: str,

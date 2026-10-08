@@ -89,6 +89,24 @@ export type RunContext = {
   messages: ContextMessage[] | null;
 };
 
+export type VoiceCluster = {
+  model_id: string | null;
+  context_signature: string | null;
+  provider_ids: string[];
+  seat_ids: string[];
+  run_ids: string[];
+  shared_model: boolean;
+};
+
+export type EffectiveVoices = {
+  thread_id: string;
+  dispatch_id: string | null;
+  seats: number;
+  completed: number;
+  effective_voices: number;
+  clusters: VoiceCluster[];
+};
+
 export type CancellationAcknowledgement = { run_id: string; cancel_requested: boolean };
 
 export type ThreadRecord = {

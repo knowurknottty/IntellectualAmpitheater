@@ -306,3 +306,35 @@ async def test_run_context_endpoint_returns_exact_messages_sent(tmp_path):
         assert missing.status_code == 404
     finally:
         await close_client(client, lifespan)
+
+
+async def test_effective_voices_endpoint_counts_panel(tmp_path):
+    app, client, lifespan, adapter = await make_client(tmp_path)
+    try:
+        seat_a = await create_seat(client, name="A")
+        seat_b = await create_seat(client, name="B")
+        accepted = await client.post(
+            "/api/dispatch",
+            json={"thread_id": "thread-voices", "prompt": "q", "seat_ids": [seat_a["seat_id"], seat_b["seat_id"]]},
+        )
+        assert accepted.status_code == 202, accepted.text
+        run_ids = accepted.json()["run_ids"]
+        for run_id in run_ids:
+            for _ in range(100):
+                receipt = await client.get(f"/api/runs/{run_id}/receipt")
+                if receipt.status_code == 200:
+                    break
+                await asyncio.sleep(0.02)
+            assert receipt.status_code == 200
+        voices = await client.get("/api/threads/thread-voices/effective-voices")
+        assert voices.status_code == 200
+        body = voices.json()
+        assert body["seats"] == 2
+        assert body["completed"] == 2
+        # Same model, same context, two seats: one effective voice.
+        assert body["effective_voices"] == 1
+
+        missing = await client.get("/api/threads/thread_nope/effective-voices")
+        assert missing.status_code == 404
+    finally:
+        await close_client(client, lifespan)

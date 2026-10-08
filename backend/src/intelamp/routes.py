@@ -12,6 +12,7 @@ from .contracts import DispatchRequest, FailureClass, RunReceipt, SeatCreate, Te
 from .dispatch import DispatchEngine
 from .registry import ProviderRegistry
 from .repositories import EventRepository, RunRepository, SeatRepository, ThreadRepository
+from .voices import compute_effective_voices
 
 
 @dataclass(slots=True)
@@ -203,6 +204,28 @@ def create_router(services: RouteServices) -> APIRouter:
             return _error(404, "run_not_found", f"run not found: {run_id}")
         requested = await services.dispatch.cancel(run_id)
         return {"run_id": run_id, "cancel_requested": requested}
+
+    @router.get("/threads/{thread_id}/effective-voices")
+    async def effective_voices(thread_id: str):
+        """Independence-discounted voice count for the thread's latest dispatch."""
+        thread = await services.threads.get(thread_id)
+        if thread is None:
+            return _error(404, "thread_not_found", f"thread not found: {thread_id}")
+        rows = await services.runs.latest_dispatch_runs(thread_id)
+        result = compute_effective_voices(
+            [
+                {
+                    "run_id": row.run_id,
+                    "seat_id": row.seat_id,
+                    "provider_id": row.provider_id,
+                    "model_id": row.model_id,
+                    "terminal_state": row.terminal_state,
+                    "context_messages": row.context_messages,
+                }
+                for row in rows
+            ]
+        )
+        return {"thread_id": thread_id, "dispatch_id": rows[0].dispatch_id if rows else None, **result}
 
     @router.get("/runs/{run_id}/context")
     async def run_context(run_id: str):

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IntelAmpClient } from "../api/client";
-import type { ProviderSummary, RunEvent, SeatRecord, ThreadRecord } from "../api/types";
+import type { EffectiveVoices, ProviderSummary, RunEvent, SeatRecord, ThreadRecord } from "../api/types";
 import { Composer } from "./Composer";
 import { Inspector } from "./Inspector";
 import { SeatGrid, type SeatStatus, type SeatView } from "./SeatGrid";
@@ -36,6 +36,7 @@ export function AppShell({ seats: controlledSeats, providers: controlledProvider
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [threads, setThreads] = useState<ThreadRecord[]>([]);
   const [activeThreadId, setActiveThreadId] = useState("");
+  const [voices, setVoices] = useState<EffectiveVoices | null>(null);
   const runToSeat = useRef(new Map<string, string>());
 
   useEffect(() => { if (controlledSeats) setLiveSeats(controlledSeats); }, [controlledSeats]);
@@ -98,11 +99,19 @@ export function AppShell({ seats: controlledSeats, providers: controlledProvider
   };
   const cancel = async (runId: string) => { if (onCancel) return await onCancel(runId); await gateway.cancelRun(runId); };
 
+  const seatStatusKey = liveSeats.map((seat) => seat.status).join(",");
+  useEffect(() => {
+    if (!activeThreadId) { setVoices(null); return; }
+    let active = true;
+    void gateway.getEffectiveVoices(activeThreadId).then((result) => { if (active) setVoices(result); }).catch(() => { if (active) setVoices(null); });
+    return () => { active = false; };
+  }, [activeThreadId, seatStatusKey, gateway]);
+
   const focusedSeat = liveSeats.find((seat) => seat.seatId === focusedSeatId) ?? liveSeats[0];
   const activeCount = liveSeats.filter((seat) => seat.status === "queued" || seat.status === "running").length;
   return <div className="intelamp-shell">
     <nav className="workspace-nav" aria-label="Workspace navigation"><div className="brand-mark" aria-label="IntelAMP">IA</div><button type="button" onClick={() => focusRegion("seat-workspace")}>Threads</button><button type="button" onClick={() => focusRegion("inspector")}>Providers</button><button type="button" onClick={() => focusRegion("composer")}>Compose</button></nav>
-    <header className="run-status" aria-label="Run status"><div><span className="run-status__brand">INTELAMP</span><span className="run-status__divider" aria-hidden="true">/</span><span>{liveSeats.length} {liveSeats.length === 1 ? "seat" : "seats"}</span></div><strong>{activeCount > 0 ? `${activeCount} running` : "No active run"}</strong></header>
+    <header className="run-status" aria-label="Run status"><div><span className="run-status__brand">INTELAMP</span><span className="run-status__divider" aria-hidden="true">/</span><span>{liveSeats.length} {liveSeats.length === 1 ? "seat" : "seats"}</span>{voices && voices.completed > 0 && <><span className="run-status__divider" aria-hidden="true">/</span><span>{voices.effective_voices} effective {voices.effective_voices === 1 ? "voice" : "voices"}</span></>}</div><strong>{activeCount > 0 ? `${activeCount} running` : "No active run"}</strong></header>
     <main id="seat-workspace" className="seat-workspace" aria-label="Seat workspace" tabIndex={-1}>{gatewayError && <p className="gateway-error" role="alert">{gatewayError}</p>}<div className="thread-control"><label><span>Thread</span><select aria-label="Thread" value={activeThreadId} onChange={(event) => setActiveThreadId(event.target.value)}>{threads.map((thread) => <option value={thread.thread_id} key={thread.thread_id}>{thread.title ?? thread.thread_id}</option>)}</select></label><button type="button" onClick={() => void newThread()}>New thread</button></div>{liveSeats.length > 0 && <label className="focused-seat-control"><span>Focused seat</span><select aria-label="Focused seat" value={focusedSeat?.seatId ?? ""} onChange={(event) => setFocusedSeatId(event.target.value)}>{liveSeats.map((seat) => <option value={seat.seatId} key={seat.seatId}>{seat.displayName}</option>)}</select></label>}<SeatGrid seats={liveSeats} focusedSeatId={focusedSeat?.seatId} /></main>
     <div id="composer" tabIndex={-1}><Composer seats={liveSeats} providers={liveProviders} onDispatch={dispatch} onCancel={cancel} /></div>
     <div id="inspector" tabIndex={-1}><Inspector seat={focusedSeat} client={gateway} /></div>

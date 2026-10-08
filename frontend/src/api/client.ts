@@ -2,6 +2,7 @@ import type {
   CancellationAcknowledgement,
   DispatchAccepted,
   DispatchRequest,
+  EffectiveVoices,
   ProviderSummary,
   RunContext,
   RunEvent,
@@ -141,6 +142,10 @@ export class IntelAmpClient {
 
   async getThread(threadId: string): Promise<ThreadRecord> {
     return await this.json<ThreadRecord>(`/api/threads/${encodeURIComponent(threadId)}`);
+  }
+
+  async getEffectiveVoices(threadId: string): Promise<EffectiveVoices> {
+    return await this.json<EffectiveVoices>(`/api/threads/${encodeURIComponent(threadId)}/effective-voices`);
   }
 
   async subscribeRunEvents(runId: string, options: SubscribeOptions): Promise<void> {
